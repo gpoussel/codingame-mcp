@@ -68,9 +68,24 @@ uv run mcp dev src/codingame_mcp/server.py
 
 ### Use with Claude Code
 
-Register the server from the project directory with the `claude mcp` CLI. The
-`--` separates Claude's flags from the launch command, `--env` injects the
-cookie, and `--scope` chooses where the config lives:
+Register the server with the `claude mcp` CLI. The `--` separates Claude's flags
+from the launch command, `--env` injects the cookie, and `--scope` chooses where
+the config lives.
+
+**To use it from any repo** (the common case — you run Claude Code in another
+project and want CodinGame tools available there), register it at `user` scope
+and point `uv` at this checkout with `--directory` so the launch works
+regardless of the working directory:
+
+```bash
+claude mcp add codingame \
+  --scope user \
+  --env CODINGAME_REMEMBER_ME="<your-rememberMe-cookie-value>" \
+  -- uv run --directory /absolute/path/to/codingame-mcp codingame-mcp
+```
+
+If you only want it inside this repo, drop `--directory` and use `--scope local`
+while adding it from this directory:
 
 ```bash
 claude mcp add codingame \
@@ -86,9 +101,6 @@ and set the variable in your environment instead).
 
 Manage it with `claude mcp list`, `claude mcp get codingame`, and
 `claude mcp remove codingame`.
-
-> Because `uv run` resolves the project from the working directory, add the
-> server from this repo's root (or use an absolute path to `uv`).
 
 ### Use with Claude Desktop
 
