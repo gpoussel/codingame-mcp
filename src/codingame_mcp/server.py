@@ -20,6 +20,21 @@ mcp = FastMCP("codingame")
 _client: CodinGameClient | None = None
 _client_lock = asyncio.Lock()
 
+# Fields dropped from each list_puzzles entry: either always empty there (the
+# detail-only fields) or noise for a per-puzzle overview. Use get_puzzle for
+# the full record.
+_LIST_PUZZLE_HIDDEN_FIELDS = (
+    "creationTime",
+    "rank",
+    "validatorScore",
+    "communityCreation",
+    "xpPoints",
+    "forumLink",
+    "detailsPageUrl",
+    "contributor",
+    "feedback",
+)
+
 
 async def get_client() -> CodinGameClient:
     """Return the shared client, constructing and authenticating it once."""
@@ -68,10 +83,19 @@ async def get_user_progress(handle: str) -> dict[str, Any]:
 
 @mcp.tool()
 async def list_puzzles() -> list[dict[str, Any]]:
-    """List all puzzles together with the authenticated user's progress."""
+    """List all puzzles together with the authenticated user's progress.
+
+    Returns a trimmed overview per puzzle; call get_puzzle for the full record.
+    """
     client = await get_client()
     puzzles = await client.list_puzzles()
-    return [p.model_dump() for p in puzzles]
+    result = []
+    for puzzle in puzzles:
+        data = puzzle.model_dump()
+        for field in _LIST_PUZZLE_HIDDEN_FIELDS:
+            data.pop(field, None)
+        result.append(data)
+    return result
 
 
 @mcp.tool()
