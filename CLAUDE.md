@@ -69,10 +69,24 @@ Adding any capability touches the same four files, in order:
   hydrates them via `findProgressByIds [ids, userId, 1]` (the trailing `1` is
   required). `get_puzzle` uses `findProgressByPrettyId`, which alone carries the
   detail fields (`statement`, `topics`, ...) — these are `None` on list entries.
+- **`submitted` is backfilled across the two calls.** `findProgressByIds`
+  returns `submitted: null`, but `findAllMinimalProgress` carries the real
+  boolean; `client.list_puzzles` keeps a `{id: submitted}` map from the minimal
+  call and fills it in on the hydrated records. It is a **boolean** — CodinGame
+  exposes no last-submission *date* on these endpoints.
+- **Derived progress signals live on the model.** `PuzzleProgress` exposes
+  `@computed_field`s `userScore` (= `validatorScore`, the 0-100 grid signal),
+  `userRank` (= `rank`, only for ranked types GOLF/OPTIM/MULTI/ARENA), and
+  `solved` (per type: `validatorScore == 100` for SOLO/CODE/GOLF/OPTIM;
+  league/rank presence for MULTI/ARENA; `None` when unknown). Both `list_puzzles`
+  and `get_puzzle` get these for free via `model_dump`.
 - **`server.py` is a presentation layer.** The `list_puzzles` tool trims
-  noise/detail-only fields (`_LIST_PUZZLE_HIDDEN_FIELDS`) from each entry; the
-  client method still returns the full typed record. Keep client = full
-  fidelity, tools = shaped-for-the-LLM.
+  noise/detail-only fields (`_LIST_PUZZLE_HIDDEN_FIELDS`, incl. the raw
+  `validatorScore`/`rank` superseded by the derived fields) and filters
+  server-side (`only_unsolved`, `min_score`/`max_score`, `puzzle_type`, `level`,
+  `limit`/`offset`) so callers avoid pulling all ~1000 puzzles. The client
+  method still returns the full typed record. Keep client = full fidelity,
+  tools = shaped-for-the-LLM.
 - **Test cases come from a test session.** `get_puzzle_tests` calls
   `generateSessionFromPuzzlePrettyId` then `startTestSession`; the visible test
   cases reference I/O as binary blobs, fetched as plain text from

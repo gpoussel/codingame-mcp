@@ -13,7 +13,7 @@ preserves both the declared and the extra fields.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, computed_field
 
 
 class CGModel(BaseModel):
@@ -70,7 +70,11 @@ class PuzzleProgress(CGModel):
     solvedCount: int | None = None
     attemptCount: int | None = None
     creationTime: int | None = None
-    # Per-user progress.
+    # Per-user progress. ``validatorScore`` is the 0-100 validator percentage
+    # that colours the training grid green; ``rank`` is the leaderboard rank for
+    # ranked puzzle types (GOLF/OPTIM/MULTI). ``submitted`` is a boolean and is
+    # only populated by ``findAllMinimalProgress`` (it comes back ``None`` from
+    # ``findProgressByIds``); :meth:`CodinGameClient.list_puzzles` backfills it.
     rank: int | None = None
     validatorScore: int | None = None
     submitted: bool | None = None
@@ -83,6 +87,41 @@ class PuzzleProgress(CGModel):
     forumLink: str | None = None
     detailsPageUrl: str | None = None
     contributor: dict | None = None
+
+    # -- derived, LLM-friendly progress signals ----------------------------
+    # These are computed from the raw progress above so both list_puzzles and
+    # get_puzzle expose the same "have I solved this?" semantics in one place.
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def userScore(self) -> int | None:
+        """The authenticated user's 0-100 validator score (alias of ``validatorScore``)."""
+        return self.validatorScore
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def userRank(self) -> int | None:
+        """The user's leaderboard rank, only for ranked types (GOLF/OPTIM/MULTI/ARENA)."""
+        if (self.type or "").upper() in ("GOLF", "OPTIM", "MULTI", "ARENA"):
+            return self.rank
+        return None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def solved(self) -> bool | None:
+        """Whether the user has solved the puzzle, with semantics per puzzle type.
+
+        - SOLO / CODE / GOLF / OPTIM: solved iff the validator score is 100.
+        - MULTI / ARENA: no binary "solved" -- treated as solved once the user
+          is in a league or has a leaderboard rank.
+        - ``None`` when the type is unknown and there is no score signal.
+        """
+        ptype = (self.type or "").upper()
+        if ptype in ("MULTI", "ARENA"):
+            return getattr(self, "league", None) is not None or bool(self.rank)
+        if self.validatorScore is not None:
+            return self.validatorScore == 100
+        return None
 
 
 class PuzzleLanguage(CGModel):

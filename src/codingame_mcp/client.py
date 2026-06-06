@@ -169,11 +169,24 @@ class CodinGameClient:
         """
         uid = user_id if user_id is not None else await self.get_user_id()
         minimal = await self._call(endpoints.PUZZLES_ALL_MINIMAL_PROGRESS, [uid])
-        ids = [item["id"] for item in (minimal or []) if item.get("id") is not None]
+        # findAllMinimalProgress carries the real ``submitted`` boolean, which
+        # findProgressByIds drops (returns None); keep it to backfill below.
+        submitted_by_id = {
+            item["id"]: item.get("submitted")
+            for item in (minimal or [])
+            if item.get("id") is not None
+        }
+        ids = list(submitted_by_id)
         if not ids:
             return []
         data = await self._call(endpoints.PUZZLES_PROGRESS_BY_IDS, [ids, uid, 1])
-        return [PuzzleProgress.model_validate(item) for item in (data or [])]
+        puzzles = []
+        for item in data or []:
+            puzzle = PuzzleProgress.model_validate(item)
+            if puzzle.submitted is None and puzzle.id in submitted_by_id:
+                puzzle.submitted = submitted_by_id[puzzle.id]
+            puzzles.append(puzzle)
+        return puzzles
 
     async def get_puzzle(self, pretty_id: str, user_id: int | None = None) -> PuzzleProgress:
         """Fetch a single puzzle (by pretty id) with the user's progress."""

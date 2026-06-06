@@ -21,8 +21,9 @@ _client: CodinGameClient | None = None
 _client_lock = asyncio.Lock()
 
 # Fields dropped from each list_puzzles entry: either always empty there (the
-# detail-only fields) or noise for a per-puzzle overview. Use get_puzzle for
-# the full record.
+# detail-only fields), noise for a per-puzzle overview, or raw progress now
+# surfaced through the derived userScore/userRank/solved fields. Use get_puzzle
+# for the full record.
 _LIST_PUZZLE_HIDDEN_FIELDS = (
     "creationTime",
     "rank",
@@ -82,15 +83,60 @@ async def get_user_progress(handle: str) -> dict[str, Any]:
 
 
 @mcp.tool()
-async def list_puzzles() -> list[dict[str, Any]]:
-    """List all puzzles together with the authenticated user's progress.
+async def list_puzzles(
+    only_unsolved: bool = False,
+    min_score: int | None = None,
+    max_score: int | None = None,
+    puzzle_type: str | None = None,
+    level: str | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    """List puzzles with the authenticated user's progress, filtered server-side.
 
-    Returns a trimmed overview per puzzle; call get_puzzle for the full record.
+    Each entry carries the derived progress signals userScore (0-100 validator
+    score, the value that colours the training grid green), userRank (leaderboard
+    rank for ranked types), and solved (per-type: validatorScore==100 for
+    SOLO/CODE/GOLF/OPTIM; in-a-league/ranked for MULTI/ARENA). The full list is
+    ~1000 puzzles, so prefer filtering over fetching everything; call get_puzzle
+    for the full per-puzzle record.
+
+    Args:
+        only_unsolved: Keep only puzzles the user has not solved (solved is False
+            or unknown). Cheaply answers "what's left to do".
+        min_score: Keep puzzles whose userScore is >= this (0-100).
+        max_score: Keep puzzles whose userScore is <= this (0-100). Combine with
+            min_score to find "started but not finished" (e.g. 1..99).
+        puzzle_type: Keep only this type (SOLO, CODE, GOLF, OPTIM, MULTI, ARENA);
+            case-insensitive.
+        level: Keep only this difficulty level (e.g. easy, medium, hard, expert).
+        limit: Max number of entries to return after filtering (None = all).
+        offset: Number of filtered entries to skip before applying limit.
     """
     client = await get_client()
     puzzles = await client.list_puzzles()
+
+    wanted_type = puzzle_type.upper() if puzzle_type else None
+
+    def keep(puzzle: Any) -> bool:
+        if only_unsolved and puzzle.solved:
+            return False
+        score = puzzle.userScore
+        if min_score is not None and (score is None or score < min_score):
+            return False
+        if max_score is not None and (score is None or score > max_score):
+            return False
+        if wanted_type and (puzzle.type or "").upper() != wanted_type:
+            return False
+        if level and (puzzle.level or "") != level:
+            return False
+        return True
+
+    filtered = [p for p in puzzles if keep(p)]
+    window = filtered[offset:] if limit is None else filtered[offset : offset + limit]
+
     result = []
-    for puzzle in puzzles:
+    for puzzle in window:
         data = puzzle.model_dump()
         for field in _LIST_PUZZLE_HIDDEN_FIELDS:
             data.pop(field, None)
