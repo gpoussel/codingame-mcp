@@ -66,7 +66,33 @@ Inspect interactively with the MCP Inspector:
 uv run mcp dev src/codingame_mcp/server.py
 ```
 
-### Use with Claude Desktop / Claude Code
+### Use with Claude Code
+
+Register the server from the project directory with the `claude mcp` CLI. The
+`--` separates Claude's flags from the launch command, `--env` injects the
+cookie, and `--scope` chooses where the config lives:
+
+```bash
+claude mcp add codingame \
+  --scope local \
+  --env CODINGAME_REMEMBER_ME="<your-rememberMe-cookie-value>" \
+  -- uv run codingame-mcp
+```
+
+Scopes: `local` (default, private to you in this project), `user` (available
+across all your projects), or `project` (writes a checked-in `.mcp.json` shared
+with your team — **do not** put the cookie there; use `${CODINGAME_REMEMBER_ME}`
+and set the variable in your environment instead).
+
+Manage it with `claude mcp list`, `claude mcp get codingame`, and
+`claude mcp remove codingame`.
+
+> Because `uv run` resolves the project from the working directory, add the
+> server from this repo's root (or use an absolute path to `uv`).
+
+### Use with Claude Desktop
+
+Add the server to your `claude_desktop_config.json`:
 
 ```json
 {
