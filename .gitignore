@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual env / uv
+.venv/
+uv.lock
+
+# Secrets
+.env
+
+# Test / tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Playwright MCP scratch output
+.playwright-mcp/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
