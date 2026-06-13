@@ -87,3 +87,30 @@ Le `handle` provient de `generateSessionFromPuzzlePrettyId` (déjà en place).
 - **endpoints** — asserter l'arg count des nouveaux endpoints, comme la suite
   existante.
 - Tous les tests réseau sont **skippés** sans cookie, comme la suite existante.
+
+## Extension (2026-06-14) — claim des labels d'un puzzle
+
+Après une résolution, CodinGame propose de « réclamer » les *topics* (labels) du
+puzzle sur le profil. Découverte (capture manuelle) :
+
+| Op | Endpoint | Args | Réponse |
+|----|----------|------|---------|
+| lecture | `CodingamerPuzzleTopic/selectTopicsByCodingamerIdAndPuzzleId` | `[userId, puzzleId]` | arbre de topics (`learned`, `id`, `value`, `children[]`) |
+| claim | `CodingamerPuzzleTopic/markAsLearned` | `[userId, puzzleId, topicId, true]` | **204** (corps vide), **un label à la fois** |
+
+Seules les **feuilles** (topics sans `children`) sont réclamables : claim de
+l'id 67 (*parsing*) le passe `learned:true` sans toucher le parent.
+
+- **`endpoints.py`** — `PUZZLE_TOPICS_BY_USER` (2 args), `PUZZLE_TOPIC_MARK_LEARNED`
+  (4 args).
+- **`models.py`** — `PuzzleTopic` (récursif).
+- **`client.py`** — `request()` tolère désormais les réponses **204/vides**
+  (renvoie `None`) ; helper **pur** `unclaimed_leaf_topics(topics)` (aplatit
+  l'arbre → feuilles non-acquises) ; `claim_puzzle_labels(pretty_id)` résout
+  `pretty_id`→`puzzle.id`, lit les topics et `markAsLearned` chaque feuille
+  non-acquise (séquentiel), renvoyant la liste réclamée.
+- **`server.py`** — `claim_puzzle_labels(pretty_id)` gardé par `writes_enabled()`
+  (3ᵉ write tool ; pas d'outil « list » séparé).
+- **Tests** — unitaire pur du helper (sur la capture) ; lecture live des topics ;
+  claim réel **opt-in** `CODINGAME_ALLOW_CLAIM_TEST` (skip par défaut) ; le flag
+  expose/masque le tool.
