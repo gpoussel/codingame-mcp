@@ -15,7 +15,7 @@ the **`rememberMe` cookie** copied from a logged-in browser session.
 
 ## Tools
 
-All tools are read-only:
+Read-only tools (always available):
 
 | Tool | Description |
 | --- | --- |
@@ -28,8 +28,19 @@ All tools are read-only:
 | `recommend_next_puzzles(pretty_id)` | The puzzles CodinGame suggests tackling next. |
 | `get_account_summary()` | Navbar counters: unseen notifications, lootable quests, new contributions/events. |
 
+Write tools (exposed **only** when `CODINGAME_ENABLE_WRITES` is truthy — see
+[Enabling writes](#enabling-writes)):
+
+| Tool | Description |
+| --- | --- |
+| `run_puzzle_tests(pretty_id, language, code)` | Run a puzzle's visible test cases against your code. Does **not** affect your score. |
+| `submit_puzzle_solution(pretty_id, language, code)` | Submit for official grading. **Affects your score/ranking**; returns the per-validator result. |
+| `claim_puzzle_labels(pretty_id)` | Claim a puzzle's labels (topics) onto your profile. **Changes your profile**; returns the labels claimed. |
+
 > `handle` is the **public handle** (the long hex id in profile URLs), not the
 > display pseudo. `pretty_id` is the slug from a puzzle's training URL.
+> `language` is a `programmingLanguageId` (e.g. `Python3`, `TypeScript`, `Java`)
+> from `get_puzzle_tests`.
 
 ## Setup
 
@@ -51,6 +62,21 @@ Set it as an environment variable (see `.env.example`):
 ```bash
 export CODINGAME_REMEMBER_ME="<your-rememberMe-cookie-value>"
 ```
+
+### Enabling writes
+
+By default the server is **read-only**: the write tools are not even registered,
+so an MCP client never sees them. To expose `run_puzzle_tests` and
+`submit_puzzle_solution`, set a truthy `CODINGAME_ENABLE_WRITES`
+(`1`/`true`/`yes`/`on`):
+
+```bash
+export CODINGAME_ENABLE_WRITES=1
+```
+
+> ⚠️ `submit_puzzle_solution` performs a **real submission** that affects your
+> CodinGame score and ranking. `run_puzzle_tests` only runs the visible test
+> cases and is safe.
 
 ## Run
 
@@ -130,6 +156,11 @@ uv run pytest -v
 
 They assert on structural invariants (which fields/types exist), so they fail
 loudly when CodinGame changes its API but tolerate normal data churn.
+
+The tests that perform a **real** profile-changing write are opt-in and skipped
+unless you set their env var: `CODINGAME_ALLOW_SUBMIT_TEST` (submits a solution)
+and `CODINGAME_ALLOW_CLAIM_TEST` (claims a puzzle's labels). `run_puzzle_tests`
+is exercised by default since it doesn't affect your score.
 
 ## Project layout
 

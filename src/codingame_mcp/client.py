@@ -20,6 +20,9 @@ from .models import (
     PuzzleProgress,
     PuzzleTestCase,
     PuzzleTests,
+    PuzzleTopic,
+    SubmitReport,
+    TestPlayResult,
 )
 
 BASE_URL = "https://www.codingame.com"
@@ -29,6 +32,21 @@ API_URL = BASE_URL + "/services/"
 FILE_SERVLET_URL = "https://static.codingame.com/servlet/fileservlet"
 COOKIE_DOMAIN = "www.codingame.com"
 REMEMBER_ME_COOKIE = "rememberMe"
+
+
+def unclaimed_leaf_topics(topics: list[PuzzleTopic]) -> list[PuzzleTopic]:
+    """Flatten a topic tree to the leaf labels not yet claimed.
+
+    Only leaves (topics with no ``children``) are claimable; category parents
+    are skipped. A leaf counts as claimable when its ``learned`` flag is falsy.
+    """
+    leaves: list[PuzzleTopic] = []
+    for topic in topics:
+        if topic.children:
+            leaves.extend(unclaimed_leaf_topics(topic.children))
+        elif not topic.learned:
+            leaves.append(topic)
+    return leaves
 
 
 class CodinGameError(RuntimeError):
@@ -95,6 +113,9 @@ class CodinGameClient:
             except ValueError:
                 payload = response.text
             raise CodinGameError(service, func, payload)
+        if response.status_code == 204 or not response.content:
+            # No content (e.g. markAsLearned returns 204): nothing to parse.
+            return None
         data = response.json()
         if isinstance(data, dict) and data.get("id", 0) and "message" in data:
             # CodinGame error envelope returned with a 200 status.
@@ -258,6 +279,144 @@ class CodinGameClient:
         if response.status_code >= 400:
             return None
         return response.text
+
+    # -- writes (test session) ---------------------------------------------
+
+    async def _open_session(self, pretty_id: str, user_id: int | None = None) -> str:
+        """Open a test session for a puzzle and return its handle."""
+        uid = user_id if user_id is not None else await self.get_user_id()
+        session = await self._call(
+            endpoints.PUZZLE_GENERATE_SESSION, [uid, pretty_id, False]
+        )
+        handle = session.get("handle") if isinstance(session, dict) else None
+        if not handle:
+            raise CodinGameError(
+                *endpoints.PUZZLE_GENERATE_SESSION,
+                {"message": f"No test session for pretty id {pretty_id!r}."},
+            )
+        return handle
+
+    async def run_tests(
+        self,
+        pretty_id: str,
+        language: str,
+        code: str,
+        test_indexes: list[int] | None = None,
+        user_id: int | None = None,
+    ) -> list[TestPlayResult]:
+        """Run a puzzle's visible test cases against ``code`` and return results.
+
+        ``TestSession/play`` runs a single test case, so we open one session and
+        play each requested case (all of them by default). A session allows only
+        one executor at a time, so the runs are sequential. Running also persists
+        ``code`` as the session's answer, so there is no separate save step.
+        ``language`` is a ``programmingLanguageId`` (e.g. ``Python3``,
+        ``TypeScript``); see ``get_puzzle_tests`` for the valid ids.
+        """
+        handle = await self._open_session(pretty_id, user_id)
+        started = await self._call(endpoints.TEST_SESSION_START, [handle])
+        question = (started or {}).get("currentQuestion", {}).get("question", {})
+        cases = question.get("testCases") or []
+        label_by_index = {tc.get("index"): tc.get("label") for tc in cases}
+        if test_indexes is None:
+            test_indexes = [tc.get("index") for tc in cases if tc.get("index") is not None]
+
+        results: list[TestPlayResult] = []
+        for index in test_indexes:
+            payload = {
+                "code": code,
+                "programmingLanguageId": language,
+                "multipleLanguages": {"testIndex": index},
+            }
+            data = await self._call(endpoints.TEST_SESSION_PLAY, [handle, payload])
+            result = TestPlayResult.model_validate(data or {})
+            result.index = index
+            result.label = label_by_index.get(index)
+            results.append(result)
+        return results
+
+    async def submit(
+        self,
+        pretty_id: str,
+        language: str,
+        code: str,
+        user_id: int | None = None,
+        *,
+        poll: bool = True,
+        max_polls: int = 30,
+        poll_interval: float = 1.0,
+    ) -> SubmitReport:
+        """Submit ``code`` for official grading and return the report.
+
+        ``TestSession/submit`` returns only a submission id; grading is async, so
+        we poll ``Report/findReportBySubmission`` until it carries a ``score``
+        (CodinGame returns ``{"validatorShareable": false}`` until then). With
+        ``poll=False`` the report holds just the submission id. **This affects
+        the puzzle's score/ranking** -- unlike :meth:`run_tests`.
+        """
+        handle = await self._open_session(pretty_id, user_id)
+        payload = {"code": code, "programmingLanguageId": language}
+        submission_id = await self._call(
+            endpoints.TEST_SESSION_SUBMIT, [handle, payload, None]
+        )
+        if not poll:
+            return SubmitReport(submissionId=submission_id)
+
+        report: Any = None
+        for _ in range(max_polls):
+            report = await self._call(endpoints.REPORT_BY_SUBMISSION, [submission_id])
+            if isinstance(report, dict) and report.get("score") is not None:
+                return SubmitReport.model_validate(report)
+            await asyncio.sleep(poll_interval)
+        # Grading did not finish in time: return whatever the last poll held.
+        if isinstance(report, dict):
+            report.setdefault("submissionId", submission_id)
+            return SubmitReport.model_validate(report)
+        return SubmitReport(submissionId=submission_id)
+
+    # -- puzzle topics (labels) --------------------------------------------
+
+    async def _select_topics(self, user_id: int, puzzle_id: int) -> list[PuzzleTopic]:
+        data = await self._call(endpoints.PUZZLE_TOPICS_BY_USER, [user_id, puzzle_id])
+        return [PuzzleTopic.model_validate(t) for t in (data or [])]
+
+    async def get_puzzle_topics(
+        self, pretty_id: str, user_id: int | None = None
+    ) -> list[PuzzleTopic]:
+        """Return a puzzle's topics/labels as a tree, with the user's claims."""
+        uid = user_id if user_id is not None else await self.get_user_id()
+        puzzle = await self.get_puzzle(pretty_id, uid)
+        if puzzle.id is None:
+            raise CodinGameError(
+                *endpoints.PUZZLE_PROGRESS_BY_PRETTY_ID,
+                {"message": f"No puzzle id for pretty id {pretty_id!r}."},
+            )
+        return await self._select_topics(uid, puzzle.id)
+
+    async def claim_puzzle_labels(
+        self, pretty_id: str, user_id: int | None = None
+    ) -> list[PuzzleTopic]:
+        """Claim (mark as learned) every unclaimed leaf label of a puzzle.
+
+        Only leaf topics are claimable, one ``markAsLearned`` call each (the
+        endpoint takes a single topic and returns 204). Returns the labels that
+        were claimed (empty if there was nothing left to claim). **Changes the
+        user's profile.**
+        """
+        uid = user_id if user_id is not None else await self.get_user_id()
+        puzzle = await self.get_puzzle(pretty_id, uid)
+        if puzzle.id is None:
+            raise CodinGameError(
+                *endpoints.PUZZLE_PROGRESS_BY_PRETTY_ID,
+                {"message": f"No puzzle id for pretty id {pretty_id!r}."},
+            )
+        topics = await self._select_topics(uid, puzzle.id)
+        claimable = [t for t in unclaimed_leaf_topics(topics) if t.id is not None]
+        for topic in claimable:
+            await self._call(
+                endpoints.PUZZLE_TOPIC_MARK_LEARNED, [uid, puzzle.id, topic.id, True]
+            )
+        return claimable
 
     # -- account meta ------------------------------------------------------
 

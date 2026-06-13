@@ -108,6 +108,60 @@ class PuzzleTestCase(CGModel):
     testOut: str | None = None
 
 
+class TestPlayResult(CGModel):
+    """One visible test case's run result, from ``TestSession/play``.
+
+    ``index``/``label`` are carried over from the test case that was run (the
+    play response itself only returns ``output`` + ``comparison``). On failure
+    CodinGame adds fields such as ``error``/``expected``/``found``, kept via the
+    base model's ``extra="allow"``.
+    """
+
+    index: int | None = None
+    label: str | None = None
+    output: str | None = None
+    comparison: dict | None = None
+
+
+class ValidatorResult(CGModel):
+    """One validator (graded test case) result from a submission report."""
+
+    name: str | None = None
+    methodName: str | None = None
+    success: bool | None = None
+    difficulty: int | None = None
+
+
+class SubmitReport(CGModel):
+    """A submission's grading report, from ``Report/findReportBySubmission``.
+
+    Populated once grading finishes (before then CodinGame returns only
+    ``{"validatorShareable": false}``, i.e. ``score is None``).
+    """
+
+    submissionId: int | None = None
+    score: float | None = None
+    bestScore: float | None = None
+    validators: list[ValidatorResult] = []
+
+
+class PuzzleTopic(CGModel):
+    """A puzzle topic/label, from ``CodingamerPuzzleTopic/selectTopics...``.
+
+    Topics form a tree: category parents wrap claimable leaf labels in
+    ``children``. ``learned`` says whether the authenticated user has already
+    claimed it.
+    """
+
+    id: int | None = None
+    handle: str | None = None
+    value: str | None = None
+    category: str | None = None
+    contentDetailsId: int | None = None
+    learned: bool | None = None
+    children: list["PuzzleTopic"] = []
+
+
 class PuzzleTests(CGModel):
     """A puzzle's IDE question: statement, stub, languages, and test cases.
 
