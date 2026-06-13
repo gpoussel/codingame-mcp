@@ -90,6 +90,12 @@ Adding any capability touches the same four files, in order:
   `submit` then polls `Report/findReportBySubmission [id]` (which returns
   `{"validatorShareable": false}` until grading finishes) until a `score`
   appears. `submit_puzzle_solution` **changes the puzzle score/ranking**.
+- **Labels are claimed leaf-by-leaf.** A puzzle's topics
+  (`CodingamerPuzzleTopic/selectTopicsByCodingamerIdAndPuzzleId [userId,
+  puzzleId]`) form a tree; only the **leaves** are claimable, one
+  `markAsLearned [userId, puzzleId, topicId, true]` call each (it returns
+  **204**, so `request()` returns `None` on empty bodies). `claim_puzzle_labels`
+  flattens the tree (`unclaimed_leaf_topics`) and claims every unlearned leaf.
 - **Discovery via the browser.** The write endpoints were reverse-engineered
   from the IDE's network traffic; `scripts/capture_codingame.py` logs
   `POST /services/...` calls. CodinGame's anti-debug (`debugger;` loops) freezes

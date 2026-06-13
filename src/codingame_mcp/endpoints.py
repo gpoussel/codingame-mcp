@@ -60,6 +60,13 @@ TEST_SESSION_SUBMIT = ("TestSession", "submit")  # 3 args: [handle, {code, progr
 # while grading is still running, then the full report (score, validators, ...).
 REPORT_BY_SUBMISSION = ("Report", "findReportBySubmission")  # 1 arg: [submissionId]
 
+# --- Puzzle topics (labels) -----------------------------------------------
+# userId + puzzleId -> the puzzle's topics/labels as a tree, each carrying the
+# user's "learned" (claimed) flag.
+PUZZLE_TOPICS_BY_USER = ("CodingamerPuzzleTopic", "selectTopicsByCodingamerIdAndPuzzleId")  # 2 args: [userId, puzzleId]
+# Claim (mark as learned) a single leaf label. Returns 204 with no body.
+PUZZLE_TOPIC_MARK_LEARNED = ("CodingamerPuzzleTopic", "markAsLearned")  # 4 args: [userId, puzzleId, topicId, True]
+
 # --- Account meta ---------------------------------------------------------
 # Light counters the website polls for the navbar/dashboard.
 NOTIFICATIONS_UNSEEN = ("Notification", "findUnseenNotifications")  # 1 arg: [userId]

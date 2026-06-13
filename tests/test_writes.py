@@ -12,6 +12,8 @@ import os
 
 import pytest
 
+from codingame_mcp.client import unclaimed_leaf_topics
+
 # A puzzle that is always available to an authenticated user.
 PUZZLE = "jump-the-queue"
 # Correctness is irrelevant here: we assert the *shape* of the play result, so
@@ -19,6 +21,7 @@ PUZZLE = "jump-the-queue"
 TRIVIAL_PYTHON = 'print("")'
 
 ENV_ALLOW_SUBMIT = "CODINGAME_ALLOW_SUBMIT_TEST"
+ENV_ALLOW_CLAIM = "CODINGAME_ALLOW_CLAIM_TEST"
 
 # A known-correct solution (TypeScript) for jump-the-queue: re-submitting it to
 # an already-solved puzzle keeps the score at 100, so the submit test is
@@ -81,3 +84,25 @@ async def test_submit_returns_graded_report(client):
     first = report.validators[0]
     assert first.name
     assert isinstance(first.success, bool)
+
+
+async def test_get_puzzle_topics_returns_shaped_tree(client):
+    """A puzzle's topics come back as a tree of labels with a learned flag."""
+    topics = await client.get_puzzle_topics(PUZZLE)
+    assert topics, "expected at least one topic"
+    first = topics[0]
+    assert first.id is not None
+    assert first.value
+
+
+@pytest.mark.skipif(
+    not os.environ.get(ENV_ALLOW_CLAIM, "").strip(),
+    reason=f"{ENV_ALLOW_CLAIM} not set; skipping the real label-claim test.",
+)
+async def test_claim_puzzle_labels_leaves_nothing_unclaimed(client):
+    """Claiming marks every claimable leaf label as learned."""
+    claimed = await client.claim_puzzle_labels(PUZZLE)
+    assert isinstance(claimed, list)
+    # After claiming, no unclaimed leaf label remains for the puzzle.
+    topics = await client.get_puzzle_topics(PUZZLE)
+    assert unclaimed_leaf_topics(topics) == []

@@ -214,6 +214,26 @@ if writes_enabled():
             ],
         }
 
+    @mcp.tool()
+    async def claim_puzzle_labels(pretty_id: str) -> dict[str, Any]:
+        """Claim a puzzle's labels (topics) onto your profile.
+
+        Marks every not-yet-claimed leaf label of the puzzle as learned (one
+        CodinGame call each). **Changes your profile.** Returns the labels that
+        were claimed (empty if there was nothing left to claim).
+
+        Args:
+            pretty_id: The puzzle's pretty id (the slug in its training URL).
+        """
+        client = await get_client()
+        claimed = await client.claim_puzzle_labels(pretty_id)
+        return {
+            "claimed": [
+                {"id": t.id, "handle": t.handle, "value": t.value} for t in claimed
+            ],
+            "count": len(claimed),
+        }
+
 
 def main() -> None:
     """Console-script entry point: run the server over stdio."""

@@ -35,6 +35,7 @@ Write tools (exposed **only** when `CODINGAME_ENABLE_WRITES` is truthy — see
 | --- | --- |
 | `run_puzzle_tests(pretty_id, language, code)` | Run a puzzle's visible test cases against your code. Does **not** affect your score. |
 | `submit_puzzle_solution(pretty_id, language, code)` | Submit for official grading. **Affects your score/ranking**; returns the per-validator result. |
+| `claim_puzzle_labels(pretty_id)` | Claim a puzzle's labels (topics) onto your profile. **Changes your profile**; returns the labels claimed. |
 
 > `handle` is the **public handle** (the long hex id in profile URLs), not the
 > display pseudo. `pretty_id` is the slug from a puzzle's training URL.
@@ -155,6 +156,11 @@ uv run pytest -v
 
 They assert on structural invariants (which fields/types exist), so they fail
 loudly when CodinGame changes its API but tolerate normal data churn.
+
+The tests that perform a **real** profile-changing write are opt-in and skipped
+unless you set their env var: `CODINGAME_ALLOW_SUBMIT_TEST` (submits a solution)
+and `CODINGAME_ALLOW_CLAIM_TEST` (claims a puzzle's labels). `run_puzzle_tests`
+is exercised by default since it doesn't affect your score.
 
 ## Project layout
 

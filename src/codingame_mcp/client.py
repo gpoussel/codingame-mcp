@@ -20,6 +20,7 @@ from .models import (
     PuzzleProgress,
     PuzzleTestCase,
     PuzzleTests,
+    PuzzleTopic,
     SubmitReport,
     TestPlayResult,
 )
@@ -31,6 +32,21 @@ API_URL = BASE_URL + "/services/"
 FILE_SERVLET_URL = "https://static.codingame.com/servlet/fileservlet"
 COOKIE_DOMAIN = "www.codingame.com"
 REMEMBER_ME_COOKIE = "rememberMe"
+
+
+def unclaimed_leaf_topics(topics: list[PuzzleTopic]) -> list[PuzzleTopic]:
+    """Flatten a topic tree to the leaf labels not yet claimed.
+
+    Only leaves (topics with no ``children``) are claimable; category parents
+    are skipped. A leaf counts as claimable when its ``learned`` flag is falsy.
+    """
+    leaves: list[PuzzleTopic] = []
+    for topic in topics:
+        if topic.children:
+            leaves.extend(unclaimed_leaf_topics(topic.children))
+        elif not topic.learned:
+            leaves.append(topic)
+    return leaves
 
 
 class CodinGameError(RuntimeError):
@@ -97,6 +113,9 @@ class CodinGameClient:
             except ValueError:
                 payload = response.text
             raise CodinGameError(service, func, payload)
+        if response.status_code == 204 or not response.content:
+            # No content (e.g. markAsLearned returns 204): nothing to parse.
+            return None
         data = response.json()
         if isinstance(data, dict) and data.get("id", 0) and "message" in data:
             # CodinGame error envelope returned with a 200 status.
@@ -354,6 +373,50 @@ class CodinGameClient:
             report.setdefault("submissionId", submission_id)
             return SubmitReport.model_validate(report)
         return SubmitReport(submissionId=submission_id)
+
+    # -- puzzle topics (labels) --------------------------------------------
+
+    async def _select_topics(self, user_id: int, puzzle_id: int) -> list[PuzzleTopic]:
+        data = await self._call(endpoints.PUZZLE_TOPICS_BY_USER, [user_id, puzzle_id])
+        return [PuzzleTopic.model_validate(t) for t in (data or [])]
+
+    async def get_puzzle_topics(
+        self, pretty_id: str, user_id: int | None = None
+    ) -> list[PuzzleTopic]:
+        """Return a puzzle's topics/labels as a tree, with the user's claims."""
+        uid = user_id if user_id is not None else await self.get_user_id()
+        puzzle = await self.get_puzzle(pretty_id, uid)
+        if puzzle.id is None:
+            raise CodinGameError(
+                *endpoints.PUZZLE_PROGRESS_BY_PRETTY_ID,
+                {"message": f"No puzzle id for pretty id {pretty_id!r}."},
+            )
+        return await self._select_topics(uid, puzzle.id)
+
+    async def claim_puzzle_labels(
+        self, pretty_id: str, user_id: int | None = None
+    ) -> list[PuzzleTopic]:
+        """Claim (mark as learned) every unclaimed leaf label of a puzzle.
+
+        Only leaf topics are claimable, one ``markAsLearned`` call each (the
+        endpoint takes a single topic and returns 204). Returns the labels that
+        were claimed (empty if there was nothing left to claim). **Changes the
+        user's profile.**
+        """
+        uid = user_id if user_id is not None else await self.get_user_id()
+        puzzle = await self.get_puzzle(pretty_id, uid)
+        if puzzle.id is None:
+            raise CodinGameError(
+                *endpoints.PUZZLE_PROGRESS_BY_PRETTY_ID,
+                {"message": f"No puzzle id for pretty id {pretty_id!r}."},
+            )
+        topics = await self._select_topics(uid, puzzle.id)
+        claimable = [t for t in unclaimed_leaf_topics(topics) if t.id is not None]
+        for topic in claimable:
+            await self._call(
+                endpoints.PUZZLE_TOPIC_MARK_LEARNED, [uid, puzzle.id, topic.id, True]
+            )
+        return claimable
 
     # -- account meta ------------------------------------------------------
 

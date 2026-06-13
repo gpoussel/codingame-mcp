@@ -145,6 +145,23 @@ class SubmitReport(CGModel):
     validators: list[ValidatorResult] = []
 
 
+class PuzzleTopic(CGModel):
+    """A puzzle topic/label, from ``CodingamerPuzzleTopic/selectTopics...``.
+
+    Topics form a tree: category parents wrap claimable leaf labels in
+    ``children``. ``learned`` says whether the authenticated user has already
+    claimed it.
+    """
+
+    id: int | None = None
+    handle: str | None = None
+    value: str | None = None
+    category: str | None = None
+    contentDetailsId: int | None = None
+    learned: bool | None = None
+    children: list["PuzzleTopic"] = []
+
+
 class PuzzleTests(CGModel):
     """A puzzle's IDE question: statement, stub, languages, and test cases.
 

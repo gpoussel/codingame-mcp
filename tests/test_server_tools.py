@@ -6,7 +6,7 @@ import importlib
 
 from codingame_mcp.config import ENV_ENABLE_WRITES
 
-WRITE_TOOLS = {"run_puzzle_tests", "submit_puzzle_solution"}
+WRITE_TOOLS = {"run_puzzle_tests", "submit_puzzle_solution", "claim_puzzle_labels"}
 
 
 async def _tool_names(monkeypatch, *, enabled: bool) -> set[str]:
