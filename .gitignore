@@ -21,6 +21,11 @@ uv.lock
 # Playwright MCP scratch output
 .playwright-mcp/
 
+# Discovery capture artifacts (throwaway)
+scripts/captured.jsonl
+scripts/.pw-profile/
+scripts/.remember_me
+
 # Editors / OS
 .vscode/
 .idea/

@@ -12,7 +12,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from .client import CodinGameClient
-from .config import get_remember_me_cookie
+from .config import get_remember_me_cookie, writes_enabled
 
 mcp = FastMCP("codingame")
 
@@ -151,6 +151,68 @@ async def get_account_summary() -> dict[str, Any]:
     """
     client = await get_client()
     return await client.get_account_summary()
+
+
+# --- Write tools ----------------------------------------------------------
+# Registered only when CODINGAME_ENABLE_WRITES is truthy, so a read-only
+# deployment never exposes (or even advertises) operations that change state.
+if writes_enabled():
+
+    @mcp.tool()
+    async def run_puzzle_tests(
+        pretty_id: str,
+        language: str,
+        code: str,
+        test_indexes: list[int] | None = None,
+    ) -> dict[str, Any]:
+        """Run a puzzle's visible test cases against your code (no scoring).
+
+        Side-effect-free for your ranking: it only runs the visible tests (it
+        does persist the code as your session draft). Returns a pass/total
+        summary plus each case's result.
+
+        Args:
+            pretty_id: The puzzle's pretty id (the slug in its training URL).
+            language: A programmingLanguageId, e.g. ``Python3``, ``TypeScript``,
+                ``Java`` (see get_puzzle_tests for the valid ids).
+            code: The full source to run.
+            test_indexes: 1-based test-case indexes to run; defaults to all.
+        """
+        client = await get_client()
+        results = await client.run_tests(pretty_id, language, code, test_indexes)
+        passed = sum(1 for r in results if (r.comparison or {}).get("success"))
+        return {
+            "passed": passed,
+            "total": len(results),
+            "results": [r.model_dump() for r in results],
+        }
+
+    @mcp.tool()
+    async def submit_puzzle_solution(
+        pretty_id: str, language: str, code: str
+    ) -> dict[str, Any]:
+        """Submit a solution for official grading (AFFECTS your score/ranking).
+
+        Unlike run_puzzle_tests this is a real submission: it grades the code
+        against the hidden validators and updates your puzzle score. Polls until
+        grading finishes, then returns the score and per-validator results.
+
+        Args:
+            pretty_id: The puzzle's pretty id (the slug in its training URL).
+            language: A programmingLanguageId, e.g. ``Python3``, ``TypeScript``.
+            code: The full source to submit.
+        """
+        client = await get_client()
+        report = await client.submit(pretty_id, language, code)
+        return {
+            "submissionId": report.submissionId,
+            "score": report.score,
+            "passed": sum(1 for v in report.validators if v.success),
+            "total": len(report.validators),
+            "validators": [
+                {"name": v.name, "success": v.success} for v in report.validators
+            ],
+        }
 
 
 def main() -> None:

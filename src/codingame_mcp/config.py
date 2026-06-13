@@ -10,10 +10,24 @@ from __future__ import annotations
 import os
 
 ENV_REMEMBER_ME = "CODINGAME_REMEMBER_ME"
+# When truthy, the server also exposes the write tools (run tests / submit).
+ENV_ENABLE_WRITES = "CODINGAME_ENABLE_WRITES"
+
+_TRUTHY = {"1", "true", "yes", "on"}
 
 
 class ConfigError(RuntimeError):
     """Raised when required configuration is missing."""
+
+
+def writes_enabled() -> bool:
+    """Return whether write tools should be exposed.
+
+    Reads ``CODINGAME_ENABLE_WRITES`` and treats ``1``/``true``/``yes``/``on``
+    (case-insensitive, surrounding whitespace ignored) as enabled; everything
+    else -- including unset -- keeps the server read-only.
+    """
+    return os.environ.get(ENV_ENABLE_WRITES, "").strip().lower() in _TRUTHY
 
 
 def get_remember_me_cookie() -> str:

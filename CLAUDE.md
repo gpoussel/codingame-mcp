@@ -77,6 +77,25 @@ Adding any capability touches the same four files, in order:
   `generateSessionFromPuzzlePrettyId` then `startTestSession`; the visible test
   cases reference I/O as binary blobs, fetched as plain text from
   `static.codingame.com/servlet/fileservlet?id=<binaryId>` (no auth needed).
+- **Write tools are flag-gated.** `run_puzzle_tests`/`submit_puzzle_solution`
+  are registered in `server.py` only inside `if writes_enabled():`
+  (`CODINGAME_ENABLE_WRITES`), so a read-only deployment never advertises them.
+  The *client* always exposes `run_tests`/`submit` regardless of the flag.
+- **`run_tests` is sequential.** `TestSession/play` runs one test case per call
+  and a session allows only one executor at a time ("Only 1 executor running at
+  the same time for a test session"), so `run_tests` plays the cases in order on
+  a single session — not concurrently. Running also persists the code as the
+  session draft, which is why there is no separate "save" tool.
+- **Submit grading is async.** `TestSession/submit` returns only a submission id;
+  `submit` then polls `Report/findReportBySubmission [id]` (which returns
+  `{"validatorShareable": false}` until grading finishes) until a `score`
+  appears. `submit_puzzle_solution` **changes the puzzle score/ranking**.
+- **Discovery via the browser.** The write endpoints were reverse-engineered
+  from the IDE's network traffic; `scripts/capture_codingame.py` logs
+  `POST /services/...` calls. CodinGame's anti-debug (`debugger;` loops) freezes
+  the IDE under CDP/Playwright, so the IDE flows had to be captured manually from
+  a normal browser (DevTools, breakpoints off). The doc lives in
+  `docs/plans/2026-06-13-codingame-write-tools-design.md`.
 
 ## Tests philosophy
 

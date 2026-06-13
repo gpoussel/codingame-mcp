@@ -47,6 +47,19 @@ PUZZLE_GENERATE_SESSION = ("Puzzle", "generateSessionFromPuzzlePrettyId")  # 3 a
 # available languages, and the visible test cases (I/O referenced by binary id).
 TEST_SESSION_START = ("TestSession", "startTestSession")  # 1 arg: [sessionHandle]
 
+# --- Test session (writes) ------------------------------------------------
+# Run a single visible test case. The second arg is the play request; the code
+# is also persisted as the session's answer (so there is no separate "save").
+# multipleLanguages.testIndex selects which test case (1-based) to run.
+TEST_SESSION_PLAY = ("TestSession", "play")  # 2 args: [handle, {code, programmingLanguageId, multipleLanguages: {testIndex}}]
+# Submit a solution for official grading. Returns a submission id (an integer);
+# the per-validator result is then polled via REPORT_BY_SUBMISSION. The trailing
+# arg is always null on the website.
+TEST_SESSION_SUBMIT = ("TestSession", "submit")  # 3 args: [handle, {code, programmingLanguageId}, null]
+# A submission id -> its grading report. Returns {"validatorShareable": false}
+# while grading is still running, then the full report (score, validators, ...).
+REPORT_BY_SUBMISSION = ("Report", "findReportBySubmission")  # 1 arg: [submissionId]
+
 # --- Account meta ---------------------------------------------------------
 # Light counters the website polls for the navbar/dashboard.
 NOTIFICATIONS_UNSEEN = ("Notification", "findUnseenNotifications")  # 1 arg: [userId]
