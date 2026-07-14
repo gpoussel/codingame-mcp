@@ -69,10 +69,19 @@ Adding any capability touches the same four files, in order:
   hydrates them via `findProgressByIds [ids, userId, 1]` (the trailing `1` is
   required). `get_puzzle` uses `findProgressByPrettyId`, which alone carries the
   detail fields (`statement`, `topics`, ...) — these are `None` on list entries.
-- **`server.py` is a presentation layer.** The `list_puzzles` tool trims
-  noise/detail-only fields (`_LIST_PUZZLE_HIDDEN_FIELDS`) from each entry; the
-  client method still returns the full typed record. Keep client = full
-  fidelity, tools = shaped-for-the-LLM.
+- **`server.py` is a presentation layer.** The `list_puzzles` tool keeps an
+  **allowlist** of overview fields (`_LIST_PUZZLE_FIELDS`) per entry; the client
+  method still returns the full typed record. Keep client = full fidelity,
+  tools = shaped-for-the-LLM.
+- **Raw payloads blow the tool token ceiling.** The full listing serializes to
+  ~800k chars (1067 puzzles; `topics` alone is 44% of it) and
+  `get_user_progress` to ~357k (99% of it `rankHistory`, 1876 datapoints). So:
+  `list_puzzles` filters (`level`/`type`/`solved`) + pages (`limit` <= 200,
+  default 50, `limit=0` for counts only) and reports a `total` over **all**
+  matches; `rankHistory` is opt-in (`include_rank_history`); and all three tools
+  take a `fields` projection. The allowlist matters because the models are
+  `extra="allow"` -- a denylist lets every new CodinGame field back into an
+  already-near-the-ceiling response.
 - **`validatorScore` is the only progress signal on a list entry.** `submitted`
   is `null` on every entry and the achievement counts are `0` on all community
   puzzles, so `findProgressByIds`' `validatorScore` (0-100) is what tells solved
