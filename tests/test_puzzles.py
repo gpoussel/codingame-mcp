@@ -79,22 +79,54 @@ async def test_list_puzzles_tool_projects_fields(server_tools):
         assert "title" not in entry, "default overview fields leaked past the projection"
 
 
+async def test_get_puzzle_tool_excludes_statement_and_viewer(server_tools):
+    """The two heavy puzzle fields are opt-in, and both are still reachable."""
+    # bender---episode-4 is an optim puzzle: it carries a viewer bundle that is
+    # ~240k of its ~251k raw payload.
+    default = await server_tools.get_puzzle("bender---episode-4")
+    assert "viewer" not in default, "the viewer JS bundle must not be returned by default"
+    assert "statement" not in default
+    assert default["prettyId"] == "bender---episode-4"
+    assert len(json.dumps(default)) < 20_000
+
+    with_statement = await server_tools.get_puzzle(
+        "bender---episode-4", include_statement=True
+    )
+    assert with_statement["statement"], "include_statement must return the statement"
+    assert "viewer" not in with_statement, "statement must not drag the viewer back in"
+
+    with_viewer = await server_tools.get_puzzle("bender---episode-4", include_viewer=True)
+    assert with_viewer["viewer"], "include_viewer must return the bundle"
+
+
 async def test_get_puzzle_tool_projects_fields(server_tools):
-    """get_puzzle can drop the statement, which is the bulk of its payload."""
-    full = await server_tools.get_puzzle("the-descent")
-    slim = await server_tools.get_puzzle("the-descent", fields=["prettyId", "validatorScore"])
-    assert full["statement"], "expected a statement on the full record"
+    """fields narrows the record, and cannot resurrect an excluded field."""
+    slim = await server_tools.get_puzzle(
+        "the-descent", fields=["prettyId", "validatorScore"]
+    )
     assert set(slim) == {"prettyId", "validatorScore"}
 
+    sneaky = await server_tools.get_puzzle("the-descent", fields=["statement"])
+    assert sneaky == {}, "fields must not bypass include_statement"
 
-async def test_get_user_progress_tool_drops_rank_history(server_tools):
-    """rank_history is ~99% of the payload and must be opt-in."""
+
+async def test_get_user_progress_tool_summarizes(server_tools):
+    """The summary carries the progress; the bulk fields are opt-in."""
     me = await server_tools.whoami()
-    default = await server_tools.get_user_progress(me["publicHandle"])
-    assert "rankHistory" not in default["codingamePointsRankingDto"]
-    assert len(json.dumps(default)) < 50_000
+    summary = await server_tools.get_user_progress(me["publicHandle"])
+    assert summary["codingamePointsTotal"] is not None
+    assert summary["codingamePointsRank"] is not None
+    assert summary["points"], "expected a per-category points breakdown"
+    assert "rankHistory" not in json.dumps(summary)
+    assert "xpThresholds" not in summary
+    assert len(json.dumps(summary)) < 2_000
 
-    full = await server_tools.get_user_progress(me["publicHandle"], include_rank_history=True)
+    raw = await server_tools.get_user_progress(me["publicHandle"], summary=False)
+    assert "rankHistory" not in raw["codingamePointsRankingDto"]
+
+    full = await server_tools.get_user_progress(
+        me["publicHandle"], summary=False, include_rank_history=True
+    )
     assert full["codingamePointsRankingDto"]["rankHistory"]
 
 

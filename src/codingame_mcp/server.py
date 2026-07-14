@@ -43,6 +43,15 @@ _LIST_PUZZLE_FIELDS = (
 # says nothing about progress, so it is opt-in.
 _RANK_HISTORY_FIELD = "rankHistory"
 
+# The two heavyweights of a puzzle record, both opt-in:
+# - viewer is the puzzle's *game viewer*, a minified JS bundle. Only multi /
+#   optim / some CODE puzzles carry one, but there it dwarfs everything else
+#   (up to 240k chars of the 251k payload) and is useless to an agent.
+# - statement is the HTML brief: useful, but the single biggest field otherwise,
+#   and get_puzzle_tests already returns it alongside the material to solve.
+_PUZZLE_VIEWER_FIELD = "viewer"
+_PUZZLE_STATEMENT_FIELD = "statement"
+
 # A full listing blows the per-tool token ceiling (1067 puzzles), so paginate.
 _DEFAULT_LIMIT = 50
 _MAX_LIMIT = 200
@@ -53,6 +62,35 @@ def _project(data: dict[str, Any], fields: list[str] | None) -> dict[str, Any]:
     if not fields:
         return data
     return {key: data[key] for key in fields if key in data}
+
+
+def _summarize_progress(data: dict[str, Any]) -> dict[str, Any]:
+    """Reduce a points-stats record to the handful of fields that mean anything.
+
+    The raw record is dominated by rankHistory and xpThresholds; the actual
+    progress -- total points, rank, and the per-category breakdown -- is what
+    this keeps.
+    """
+    gamer = data.get("codingamer") or {}
+    ranking = data.get("codingamePointsRankingDto") or {}
+    return {
+        "pseudo": gamer.get("pseudo"),
+        "publicHandle": gamer.get("publicHandle"),
+        "level": gamer.get("level"),
+        "xp": gamer.get("xp"),
+        "rank": gamer.get("rank"),
+        "achievementCount": data.get("achievementCount"),
+        "codingamePointsTotal": ranking.get("codingamePointsTotal"),
+        "codingamePointsRank": ranking.get("codingamePointsRank"),
+        "numberCodingamersGlobal": ranking.get("numberCodingamersGlobal"),
+        "points": {
+            key.removeprefix("codingamePoints")[0].lower()
+            + key.removeprefix("codingamePoints")[1:]: value
+            for key, value in ranking.items()
+            if key.startswith("codingamePoints")
+            and key not in ("codingamePointsTotal", "codingamePointsRank")
+        },
+    }
 
 
 async def get_client() -> CodinGameClient:
@@ -91,20 +129,31 @@ async def get_user(handle: str) -> dict[str, Any]:
 @mcp.tool()
 async def get_user_progress(
     handle: str,
+    summary: bool = True,
     fields: list[str] | None = None,
     include_rank_history: bool = False,
 ) -> dict[str, Any]:
     """Get a CodinGame user's points and progress stats by public handle.
 
+    By default returns a summary: total points, rank, and the per-category
+    points breakdown. The raw record is ~357k characters, ~99% of it the
+    rankHistory timeseries plus xpThresholds, none of which says anything about
+    the user's progress.
+
     Args:
         handle: The user's public handle.
-        fields: Top-level fields to keep (e.g. ["codingamer"]). All by default.
-        include_rank_history: Include the full rank-history timeseries. It is
-            ~99% of the raw payload and will likely blow the token ceiling.
+        summary: Return the compact summary (default). Pass false for the raw
+            record, which is large.
+        fields: Fields to keep, applied to whichever shape you asked for.
+        include_rank_history: Include the full rank-history timeseries in the
+            raw record. It alone will likely blow the token ceiling. Ignored
+            when summary is true.
     """
     client = await get_client()
     stats = await client.get_points_stats(handle)
     data = stats.model_dump()
+    if summary:
+        return _project(_summarize_progress(data), fields)
     ranking = data.get("codingamePointsRankingDto")
     if not include_rank_history and isinstance(ranking, dict):
         ranking.pop(_RANK_HISTORY_FIELD, None)
@@ -173,21 +222,36 @@ async def list_puzzles(
 
 
 @mcp.tool()
-async def get_puzzle(pretty_id: str, fields: list[str] | None = None) -> dict[str, Any]:
-    """Get a single puzzle's detail plus the authenticated user's progress.
+async def get_puzzle(
+    pretty_id: str,
+    include_statement: bool = False,
+    include_viewer: bool = False,
+    fields: list[str] | None = None,
+) -> dict[str, Any]:
+    """Get a single puzzle's metadata plus the authenticated user's progress.
 
-    Includes the full statement (HTML), topics, xp, type, and contributor. The
-    statement is the bulk of the payload and can be large enough to hit the
-    tool token ceiling on itself; pass fields to leave it out.
+    Returns topics, xp, type, contributor and progress. The two heavy fields are
+    opt-in: the statement (HTML brief) and the viewer (a minified JS game bundle
+    of up to 240k characters, on multi/optim puzzles). To actually solve a
+    puzzle, prefer get_puzzle_tests, which returns the statement together with
+    the languages, code stub, and test cases.
 
     Args:
         pretty_id: The puzzle's pretty id (the slug in its training URL).
-        fields: Fields to keep (e.g. ["prettyId", "title", "validatorScore"]).
-            All of them by default.
+        include_statement: Include the HTML statement.
+        include_viewer: Include the puzzle's game-viewer JS bundle. Rarely of
+            any use to an agent, and large enough to blow the token ceiling.
+        fields: Fields to keep. Applied after the two flags above, so it cannot
+            resurrect an excluded field.
     """
     client = await get_client()
     puzzle = await client.get_puzzle(pretty_id)
-    return _project(puzzle.model_dump(), fields)
+    data = puzzle.model_dump()
+    if not include_viewer:
+        data.pop(_PUZZLE_VIEWER_FIELD, None)
+    if not include_statement:
+        data.pop(_PUZZLE_STATEMENT_FIELD, None)
+    return _project(data, fields)
 
 
 @mcp.tool()
