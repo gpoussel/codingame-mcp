@@ -73,6 +73,11 @@ Adding any capability touches the same four files, in order:
   noise/detail-only fields (`_LIST_PUZZLE_HIDDEN_FIELDS`) from each entry; the
   client method still returns the full typed record. Keep client = full
   fidelity, tools = shaped-for-the-LLM.
+- **`validatorScore` is the only progress signal on a list entry.** `submitted`
+  is `null` on every entry and the achievement counts are `0` on all community
+  puzzles, so `findProgressByIds`' `validatorScore` (0-100) is what tells solved
+  from merely-opened. `list_puzzles` exposes it plus a derived
+  `solved` (`validatorScore == 100`); don't hide it as "detail-only" again.
 - **Test cases come from a test session.** `get_puzzle_tests` calls
   `generateSessionFromPuzzlePrettyId` then `startTestSession`; the visible test
   cases reference I/O as binary blobs, fetched as plain text from

@@ -14,6 +14,30 @@ async def test_list_puzzles_non_empty(client):
     assert first.prettyId, "puzzle is missing prettyId"
 
 
+async def test_list_puzzles_carries_validator_score(client):
+    """List entries carry the user's progress, not just the puzzle identity.
+
+    validatorScore is the only progress signal the list endpoint fills in
+    (submitted is null on every entry), so list_puzzles is unusable as a
+    solved/unsolved overview without it.
+    """
+    puzzles = await client.list_puzzles()
+    assert puzzles, "expected at least one puzzle"
+    scores = [p.validatorScore for p in puzzles]
+    assert all(s is not None for s in scores), "list entries are missing validatorScore"
+    assert all(0 <= s <= 100 for s in scores), "validatorScore is not a percentage"
+
+
+async def test_list_puzzles_tool_reports_solved(client):
+    """The list_puzzles tool surfaces validatorScore plus a derived solved flag."""
+    from codingame_mcp import server
+
+    entries = await server.list_puzzles()
+    assert entries, "expected at least one puzzle"
+    assert all("validatorScore" in e for e in entries)
+    assert all(e["solved"] == (e["validatorScore"] == 100) for e in entries)
+
+
 async def test_get_puzzle_by_pretty_id(client):
     """Fetching a single puzzle by pretty id round-trips with the list."""
     puzzles = await client.list_puzzles()

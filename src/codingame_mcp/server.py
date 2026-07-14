@@ -26,7 +26,9 @@ _client_lock = asyncio.Lock()
 _LIST_PUZZLE_HIDDEN_FIELDS = (
     "creationTime",
     "rank",
-    "validatorScore",
+    # submitted is null on every entry and the achievement counts are 0 on all
+    # community puzzles, so validatorScore is the only usable progress signal.
+    "submitted",
     "communityCreation",
     "xpPoints",
     "forumLink",
@@ -85,7 +87,9 @@ async def get_user_progress(handle: str) -> dict[str, Any]:
 async def list_puzzles() -> list[dict[str, Any]]:
     """List all puzzles together with the authenticated user's progress.
 
-    Returns a trimmed overview per puzzle; call get_puzzle for the full record.
+    Progress is carried by validatorScore (percentage of validators passed, 0
+    to 100) and the derived solved flag (validatorScore == 100). Returns a
+    trimmed overview per puzzle otherwise; call get_puzzle for the full record.
     """
     client = await get_client()
     puzzles = await client.list_puzzles()
@@ -94,6 +98,7 @@ async def list_puzzles() -> list[dict[str, Any]]:
         data = puzzle.model_dump()
         for field in _LIST_PUZZLE_HIDDEN_FIELDS:
             data.pop(field, None)
+        data["solved"] = puzzle.validatorScore == 100
         result.append(data)
     return result
 
