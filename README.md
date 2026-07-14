@@ -21,9 +21,9 @@ Read-only tools (always available):
 | --- | --- |
 | `whoami` | The authenticated user (also verifies the cookie). |
 | `get_user(handle)` | A user's public details by public handle. |
-| `get_user_progress(handle)` | A user's CodinGame points / progress. |
-| `list_puzzles()` | All puzzles with the authenticated user's progress. |
-| `get_puzzle(pretty_id)` | A single puzzle's detail (incl. statement, topics, xp) + progress. |
+| `get_user_progress(handle, summary=True, fields=None, include_rank_history=False)` | A user's CodinGame points / progress. Summarized by default (total points, rank, per-category breakdown); the raw record is ~357k chars, ~99% of it `rankHistory` + `xpThresholds`. |
+| `list_puzzles(level=None, type=None, solved=None, limit=50, offset=0, fields=None)` | Puzzles with the authenticated user's progress (`validatorScore` 0-100, plus a derived `solved`), filtered and paged. `total` counts every match, not just the page — so `solved=True, limit=0` gives a tally in one call. |
+| `get_puzzle(pretty_id, include_statement=False, include_viewer=False, fields=None)` | A single puzzle's metadata (topics, xp, type, contributor) + progress. The HTML statement and the `viewer` JS game bundle (up to 240k chars on multi/optim puzzles) are both opt-in. |
 | `get_puzzle_tests(pretty_id)` | Solving material: statement, languages, code stub, and test cases with inlined I/O. |
 | `recommend_next_puzzles(pretty_id)` | The puzzles CodinGame suggests tackling next. |
 | `get_account_summary()` | Navbar counters: unseen notifications, lootable quests, new contributions/events. |

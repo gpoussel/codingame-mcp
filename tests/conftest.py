@@ -45,3 +45,22 @@ async def client():
 async def me(client):
     """The authenticated codingamer (also asserts the cookie is valid)."""
     return await client.login_verify()
+
+
+@pytest_asyncio.fixture(scope="function")
+async def server_tools():
+    """The server module, with its cached client scoped to this test.
+
+    ``server`` memoizes one client process-wide, but pytest-asyncio gives each
+    test a fresh event loop -- so a client leaked from an earlier test is bound
+    to a closed loop. Reset the cache around every test that calls a tool.
+    """
+    import codingame_mcp.server as server
+
+    server._client = None
+    try:
+        yield server
+    finally:
+        if server._client is not None:
+            await server._client.aclose()
+            server._client = None

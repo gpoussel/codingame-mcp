@@ -69,10 +69,36 @@ Adding any capability touches the same four files, in order:
   hydrates them via `findProgressByIds [ids, userId, 1]` (the trailing `1` is
   required). `get_puzzle` uses `findProgressByPrettyId`, which alone carries the
   detail fields (`statement`, `topics`, ...) — these are `None` on list entries.
-- **`server.py` is a presentation layer.** The `list_puzzles` tool trims
-  noise/detail-only fields (`_LIST_PUZZLE_HIDDEN_FIELDS`) from each entry; the
-  client method still returns the full typed record. Keep client = full
-  fidelity, tools = shaped-for-the-LLM.
+- **`server.py` is a presentation layer.** The `list_puzzles` tool keeps an
+  **allowlist** of overview fields (`_LIST_PUZZLE_FIELDS`) per entry; the client
+  method still returns the full typed record. Keep client = full fidelity,
+  tools = shaped-for-the-LLM.
+- **Raw payloads blow the tool token ceiling.** Three offenders, all handled in
+  `server.py` (the client still returns full fidelity):
+  - The full listing is ~800k chars (1067 puzzles; `topics` alone is 44%). So
+    `list_puzzles` filters (`level`/`type`/`solved`) + pages (`limit` ≤ 200,
+    default 50; `limit=0` for counts only) and reports a `total` over **all**
+    matches, so a solved/unsolved tally costs one call and ~50 chars.
+  - `get_puzzle` carries `viewer` — the puzzle's **game viewer, a minified JS
+    bundle** — on multi/optim puzzles: 240k of `bender---episode-4`'s 251k. It
+    is *not* a declared model field (it arrives via `extra="allow"`), so only
+    `server.py` drops it. Both it and `statement` are opt-in
+    (`include_viewer` / `include_statement`); default is ~1.8k chars. Use
+    `get_puzzle_tests` when you actually need the statement to solve.
+  - `get_user_progress` is ~357k, ~99% `rankHistory` (1876 datapoints) +
+    `xpThresholds`. It returns a **summary** by default (~380 chars: total
+    points, rank, per-category breakdown); `summary=false` gives the raw record,
+    and `rankHistory` needs `include_rank_history` on top of that.
+
+  All three also take a `fields` projection, applied *after* the exclusions —
+  `fields=["statement"]` cannot resurrect what `include_statement` withheld.
+  The listing allowlist matters because the models are `extra="allow"`: a
+  denylist lets every new CodinGame field back into an at-the-ceiling response.
+- **`validatorScore` is the only progress signal on a list entry.** `submitted`
+  is `null` on every entry and the achievement counts are `0` on all community
+  puzzles, so `findProgressByIds`' `validatorScore` (0-100) is what tells solved
+  from merely-opened. `list_puzzles` exposes it plus a derived
+  `solved` (`validatorScore == 100`); don't hide it as "detail-only" again.
 - **Test cases come from a test session.** `get_puzzle_tests` calls
   `generateSessionFromPuzzlePrettyId` then `startTestSession`; the visible test
   cases reference I/O as binary blobs, fetched as plain text from
