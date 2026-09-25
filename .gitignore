@@ -6,9 +6,8 @@ __pycache__/
 build/
 dist/
 
-# Virtual env / uv
+# Virtual env
 .venv/
-uv.lock
 
 # Secrets
 .env
