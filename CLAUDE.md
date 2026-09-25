@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A read-only [MCP](https://modelcontextprotocol.io) server (FastMCP) exposing
+A read-only [MCP](https://modelcontextprotocol.io) server (MCPServer, mcp 2.x) exposing
 [CodinGame](https://www.codingame.com) data. CodinGame has **no public API**:
 this server calls its undocumented internal JSON API and authenticates with a
 browser `rememberMe` cookie.

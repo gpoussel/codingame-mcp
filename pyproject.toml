@@ -5,15 +5,15 @@ description = "Read-only MCP server for the undocumented CodinGame API (cookie a
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "mcp[cli]>=1.2.0",
-    "httpx>=0.27",
-    "pydantic>=2.6",
+    "mcp[cli]>=2.2",
+    "httpx>=0.28",
+    "pydantic>=2.13",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0",
-    "pytest-asyncio>=0.23",
+    "pytest>=9.1",
+    "pytest-asyncio>=1.4",
 ]
 
 [project.scripts]

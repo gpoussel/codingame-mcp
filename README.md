@@ -1,8 +1,8 @@
 # codingame-mcp
 
 A read-only [MCP](https://modelcontextprotocol.io) server for
-[CodinGame](https://www.codingame.com), built with
-[FastMCP](https://github.com/modelcontextprotocol/python-sdk).
+[CodinGame](https://www.codingame.com), built with the
+[MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) (`MCPServer`).
 
 CodinGame has no public API and no longer supports username/password login, so
 this server talks to its **undocumented** internal JSON API
@@ -170,7 +170,7 @@ src/codingame_mcp/
   endpoints.py   # CodinGame service paths (single source of truth)
   client.py      # async httpx client: cookie, request(), typed methods
   models.py      # lenient pydantic models
-  server.py      # FastMCP instance + tools
+  server.py      # MCPServer instance + tools
 tests/           # live tests, cookie-gated
 ```
 

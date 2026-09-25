@@ -1,4 +1,4 @@
-"""FastMCP server exposing read-only CodinGame tools over stdio.
+"""MCP server exposing read-only CodinGame tools over stdio.
 
 Authentication uses the ``rememberMe`` cookie from ``CODINGAME_REMEMBER_ME``
 (see :mod:`codingame_mcp.config`); no tool accepts the cookie as an argument.
@@ -9,12 +9,12 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from .client import CodinGameClient
 from .config import get_remember_me_cookie, writes_enabled
 
-mcp = FastMCP("codingame")
+mcp = MCPServer("codingame")
 
 # A single shared client, built lazily on first tool use and reused thereafter.
 _client: CodinGameClient | None = None
