@@ -25,6 +25,7 @@ Read-only tools (always available):
 | `list_puzzles(level=None, type=None, solved=None, limit=50, offset=0, fields=None)` | Puzzles with the authenticated user's progress (`validatorScore` 0-100, plus a derived `solved`), filtered and paged. `total` counts every match, not just the page — so `solved=True, limit=0` gives a tally in one call. |
 | `get_puzzle(pretty_id, include_statement=False, include_viewer=False, fields=None)` | A single puzzle's metadata (topics, xp, type, contributor) + progress. The HTML statement and the `viewer` JS game bundle (up to 240k chars on multi/optim puzzles) are both opt-in. |
 | `get_puzzle_tests(pretty_id)` | Solving material: statement, languages, code stub, and test cases with inlined I/O. |
+| `get_puzzle_leaderboard(pretty_id, language=None, limit=20, offset=0)` | A puzzle's leaderboard, optionally for one language: rank within the list, global rank, pseudo, language, score, `criteriaScore` (bytes on code golf) and submission date, plus the authenticated user's entry as `me`. CodinGame caps a leaderboard at 1000 entries (`capped`). |
 | `recommend_next_puzzles(pretty_id)` | The puzzles CodinGame suggests tackling next. |
 | `get_account_summary()` | Navbar counters: unseen notifications, lootable quests, new contributions/events. |
 

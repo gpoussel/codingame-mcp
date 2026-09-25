@@ -83,6 +83,8 @@ class PuzzleProgress(CGModel):
     forumLink: str | None = None
     detailsPageUrl: str | None = None
     contributor: dict | None = None
+    # The id of the puzzle's leaderboard (often, not always, the prettyId).
+    puzzleLeaderboardId: str | None = None
 
 
 class PuzzleLanguage(CGModel):
@@ -175,3 +177,33 @@ class PuzzleTests(CGModel):
     stubGenerator: str | None = None
     availableLanguages: list[PuzzleLanguage] = []
     testCases: list[PuzzleTestCase] = []
+
+
+class LeaderboardEntry(CGModel):
+    """One entry of a puzzle leaderboard (a user's best in one language).
+
+    ``criteriaScore`` is the puzzle's optimization criterion (bytes on code-golf
+    puzzles), ``score`` the validator percentage, and ``creationTime`` the
+    submission time in epoch milliseconds.
+    """
+
+    rank: int | None = None
+    pseudo: str | None = None
+    score: float | None = None
+    criteriaScore: float | None = None
+    programmingLanguage: str | None = None
+    creationTime: int | None = None
+    codingamer: CodinGamer | None = None
+
+
+class PuzzleLeaderboard(CGModel):
+    """A puzzle leaderboard, from ``Leaderboards/getFilteredPuzzleLeaderboard``.
+
+    ``users`` is capped at 1000 entries; ``count`` is the whole leaderboard and
+    ``filteredCount`` the number of entries matching the filter.
+    """
+
+    users: list[LeaderboardEntry] = []
+    count: int | None = None
+    filteredCount: int | None = None
+    criteria: str | None = None

@@ -17,6 +17,7 @@ from .models import (
     CodinGamer,
     PointsStats,
     PuzzleLanguage,
+    PuzzleLeaderboard,
     PuzzleProgress,
     PuzzleTestCase,
     PuzzleTests,
@@ -221,6 +222,25 @@ class CodinGameClient:
             endpoints.PUZZLE_BEST_FOLLOWING_PROGRESS, [uid, puzzle.id]
         )
         return [PuzzleProgress.model_validate(item) for item in (data or [])]
+
+    async def get_puzzle_leaderboard(
+        self, leaderboard_id: str, language: str | None = None
+    ) -> PuzzleLeaderboard:
+        """Fetch a puzzle leaderboard, optionally filtered to one language.
+
+        ``leaderboard_id`` is the puzzle's ``puzzleLeaderboardId`` (see
+        :meth:`get_puzzle`). The endpoint is public and capped at 1000 entries.
+        """
+        leaderboard_filter = (
+            {"active": True, "column": "LANGUAGE", "filter": language}
+            if language
+            else {"active": False, "column": "", "filter": ""}
+        )
+        data = await self._call(
+            endpoints.PUZZLE_LEADERBOARD,
+            [leaderboard_id, None, "global", leaderboard_filter],
+        )
+        return PuzzleLeaderboard.model_validate(data or {})
 
     async def get_puzzle_tests(
         self, pretty_id: str, user_id: int | None = None, *, resolve_io: bool = True
