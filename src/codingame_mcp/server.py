@@ -7,6 +7,7 @@ Authentication uses the ``rememberMe`` cookie from ``CODINGAME_REMEMBER_ME``
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
@@ -293,6 +294,95 @@ async def get_account_summary() -> dict[str, Any]:
     """
     client = await get_client()
     return await client.get_account_summary()
+
+
+def _leaderboard_rows(entries: list[Any]) -> list[dict[str, Any]]:
+    """Shape leaderboard entries, ranked within the (possibly filtered) list.
+
+    The API's ``rank`` is the global one, even on a language-filtered board, so
+    the in-list rank is recomputed: entries arrive best first, and entries tied
+    on (score, criteriaScore) share the rank of the first of them.
+    """
+    rows: list[dict[str, Any]] = []
+    rank = 0
+    previous: tuple[Any, Any] | None = None
+    for position, entry in enumerate(entries, start=1):
+        key = (entry.score, entry.criteriaScore)
+        if key != previous:
+            rank, previous = position, key
+        submitted = (
+            datetime.fromtimestamp(entry.creationTime / 1000, tz=timezone.utc)
+            .isoformat(timespec="seconds")
+            if entry.creationTime
+            else None
+        )
+        rows.append(
+            {
+                "rank": rank,
+                "globalRank": entry.rank,
+                "pseudo": entry.pseudo,
+                "language": entry.programmingLanguage,
+                "score": entry.score,
+                "criteriaScore": entry.criteriaScore,
+                "submittedAt": submitted,
+                "userId": entry.codingamer.userId if entry.codingamer else None,
+            }
+        )
+    return rows
+
+
+@mcp.tool()
+async def get_puzzle_leaderboard(
+    pretty_id: str,
+    language: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """Get a puzzle's leaderboard, optionally for one language, with dates.
+
+    Each entry is one user's best in one language: its rank within this list
+    (ties share a rank), the global rank, pseudo, language, validator score (%),
+    criteriaScore (the optimization criterion -- bytes on code-golf puzzles) and
+    submittedAt (UTC). The authenticated user's own entry is returned as "me"
+    when it is on the board, wherever it sits relative to the page.
+
+    CodinGame caps a leaderboard at 1000 entries: "capped" is true when the
+    list is truncated (then ranks past the cap and "me" may be missing).
+    Filtering by language usually keeps the list under the cap.
+
+    Args:
+        pretty_id: The puzzle's pretty id (the slug in its training URL).
+        language: A programmingLanguageId (e.g. ``TypeScript``) to restrict the
+            leaderboard to; all languages when omitted.
+        limit: Max entries on this page (0 to _MAX_LIMIT; 0 returns counts and
+            "me" only).
+        offset: Entries to skip, for paging.
+    """
+    if limit < 0 or limit > _MAX_LIMIT:
+        raise ValueError(f"limit must be between 0 and {_MAX_LIMIT}, got {limit}")
+    if offset < 0:
+        raise ValueError(f"offset must be >= 0, got {offset}")
+
+    client = await get_client()
+    puzzle = await client.get_puzzle(pretty_id)
+    leaderboard_id = puzzle.puzzleLeaderboardId or pretty_id
+    board = await client.get_puzzle_leaderboard(leaderboard_id, language)
+    rows = _leaderboard_rows(board.users)
+    user_id = await client.get_user_id()
+    me = next((row for row in rows if row["userId"] == user_id), None)
+    total = board.filteredCount if board.filteredCount is not None else len(rows)
+    return {
+        "puzzle": pretty_id,
+        "leaderboardId": leaderboard_id,
+        "criteria": board.criteria,
+        "language": language,
+        "total": total,
+        "capped": len(rows) < total,
+        "me": me,
+        "offset": offset,
+        "limit": limit,
+        "entries": rows[offset : offset + limit],
+    }
 
 
 # --- Write tools ----------------------------------------------------------

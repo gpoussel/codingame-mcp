@@ -42,6 +42,15 @@ PUZZLE_BEST_FOLLOWING_PROGRESS = ("Puzzle", "findBestFollowingProgress")  # 2 ar
 # userId + prettyId + report flag -> a test-session handle for the puzzle's IDE.
 PUZZLE_GENERATE_SESSION = ("Puzzle", "generateSessionFromPuzzlePrettyId")  # 3 args: [userId, prettyId, False]
 
+# --- Leaderboards ---------------------------------------------------------
+# leaderboardId + userId + scope + filter -> a puzzle's leaderboard (one entry
+# per user and language). The leaderboard id is the puzzle's
+# ``puzzleLeaderboardId`` (often the prettyId, but not always: "thor-codesize"
+# for "power-of-thor"). Public: works without the cookie, userId may be null.
+# The filter is {"active": bool, "column": "LANGUAGE"|..., "filter": value};
+# the response is capped at 1000 entries (``filteredCount`` gives the real size).
+PUZZLE_LEADERBOARD = ("Leaderboards", "getFilteredPuzzleLeaderboard")  # 4 args: [leaderboardId, userId, "global", filter]
+
 # --- Test session (IDE) ---------------------------------------------------
 # A session handle -> the puzzle's question: statement, stub generator,
 # available languages, and the visible test cases (I/O referenced by binary id).

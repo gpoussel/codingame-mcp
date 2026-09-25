@@ -99,6 +99,15 @@ Adding any capability touches the same four files, in order:
   puzzles, so `findProgressByIds`' `validatorScore` (0-100) is what tells solved
   from merely-opened. `list_puzzles` exposes it plus a derived
   `solved` (`validatorScore == 100`); don't hide it as "detail-only" again.
+- **Leaderboards are keyed by `puzzleLeaderboardId`, not `prettyId`.** They
+  usually match, but not always (`power-of-thor` → `thor-codesize`,
+  `don't-panic` → `paranoid-codesize`), so `get_puzzle_leaderboard` resolves the
+  id through `get_puzzle` first. `getFilteredPuzzleLeaderboard` is public (the
+  userId argument can be null), returns at most 1000 entries (`filteredCount`
+  is the real size), and its `rank` is the *global* rank even on a
+  language-filtered board — the tool recomputes the rank within the list
+  (ties on `(score, criteriaScore)` share a rank). `creationTime` is the
+  submission time.
 - **Test cases come from a test session.** `get_puzzle_tests` calls
   `generateSessionFromPuzzlePrettyId` then `startTestSession`; the visible test
   cases reference I/O as binary blobs, fetched as plain text from
