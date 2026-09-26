@@ -14,7 +14,12 @@ import httpx
 
 from . import endpoints
 from .models import (
+    ArenaBattle,
+    ArenaRanking,
+    ArenaRoomLeaderboard,
+    ArenaSession,
     CodinGamer,
+    GameResult,
     PointsStats,
     PuzzleLanguage,
     PuzzleLeaderboard,
@@ -85,6 +90,7 @@ class CodinGameClient:
         self._client.cookies.set(REMEMBER_ME_COOKIE, remember_me, domain=COOKIE_DOMAIN)
         # Cache the authenticated user id, resolved lazily from the session.
         self._user_id: int | None = None
+        self._public_handle: str | None = None
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -148,6 +154,7 @@ class CodinGameClient:
             )
         codingamer = CodinGamer.model_validate(codingamer_data)
         self._user_id = codingamer.userId
+        self._public_handle = codingamer.publicHandle
         return codingamer
 
     async def get_user_id(self) -> int:
@@ -393,6 +400,130 @@ class CodinGameClient:
             report.setdefault("submissionId", submission_id)
             return SubmitReport.model_validate(report)
         return SubmitReport(submissionId=submission_id)
+
+    # -- multiplayer (arenas) ----------------------------------------------
+
+    async def get_arena_session(
+        self, pretty_id: str, user_id: int | None = None
+    ) -> ArenaSession:
+        """Open a multi puzzle's test session: league, draft and question.
+
+        The question's ``viewer`` (the game's JS bundle, ~100k+ chars) is kept;
+        callers presenting the session should drop it.
+        """
+        handle = await self._open_session(pretty_id, user_id)
+        data = await self._call(endpoints.TEST_SESSION_START, [handle])
+        current = (data or {}).get("currentQuestion") or {}
+        return ArenaSession(
+            handle=handle,
+            arena=current.get("arena"),
+            hasAgent=current.get("hasAgent"),
+            answer=current.get("answer"),
+            question=current.get("question") or {},
+        )
+
+    async def play_game(
+        self,
+        handle: str,
+        language: str,
+        code: str,
+        agents_ids: list[int],
+        game_options: str | None = None,
+    ) -> GameResult:
+        """Play one game of a multi puzzle in the IDE and return it.
+
+        ``agents_ids`` lists the seats in order: -1 is ``code``, -2 the league
+        boss, a positive id a submitted arena agent. ``game_options`` is the
+        referee input (e.g. ``"seed=123"``) to replay a given game; None lets
+        the referee draw one. Like a puzzle test run, this persists ``code`` as
+        the session draft. One executor per session: play games sequentially.
+        """
+        payload = {
+            "code": code,
+            "programmingLanguageId": language,
+            "multi": {"agentsIds": agents_ids, "gameOptions": game_options},
+        }
+        data = await self._call(endpoints.TEST_SESSION_PLAY, [handle, payload])
+        return GameResult.model_validate(data or {})
+
+    async def get_arena_ranking(
+        self, handle: str, user_id: int | None = None
+    ) -> ArenaRanking:
+        """The user's ranking in their arena room (incl. submission progress)."""
+        uid = user_id if user_id is not None else await self.get_user_id()
+        data = await self._call(endpoints.ARENA_USER_RANKING, [handle, uid])
+        return ArenaRanking.model_validate(data or {})
+
+    async def get_arena_room_leaderboard(
+        self, division_id: int, room_index: int = 0
+    ) -> ArenaRoomLeaderboard:
+        """A league room's leaderboard (boss first, capped at 1000 entries)."""
+        if self._public_handle is None:
+            await self.login_verify()
+        data = await self._call(
+            endpoints.ARENA_ROOM_LEADERBOARD,
+            [
+                {"divisionId": division_id, "roomIndex": room_index},
+                self._public_handle,
+                "global",
+                {"active": False, "column": "", "filter": ""},
+            ],
+        )
+        return ArenaRoomLeaderboard.model_validate(data or {})
+
+    async def get_last_battles(self, handle: str) -> list[ArenaBattle]:
+        """The user's agent's last arena battles, most recent first."""
+        data = await self._call(endpoints.ARENA_LAST_BATTLES, [handle, None])
+        return [ArenaBattle.model_validate(b) for b in (data or [])]
+
+    async def get_game_result(
+        self, game_id: int, user_id: int | None = None
+    ) -> GameResult:
+        """Fetch a game's replay (frames, ranks, scores, agents, seed)."""
+        uid = user_id if user_id is not None else await self.get_user_id()
+        data = await self._call(endpoints.GAME_RESULT_BY_ID, [game_id, uid])
+        if not data:
+            raise CodinGameError(
+                *endpoints.GAME_RESULT_BY_ID,
+                {"message": f"No game found for id {game_id!r}."},
+            )
+        return GameResult.model_validate(data)
+
+    async def submit_arena(
+        self,
+        pretty_id: str,
+        language: str,
+        code: str,
+        user_id: int | None = None,
+        *,
+        wait: float = 0.0,
+        poll_interval: float = 10.0,
+    ) -> tuple[int | None, ArenaRanking]:
+        """Submit a bot to its arena; return the submission id and ranking.
+
+        The arena grades a submission by playing it against the room, which
+        takes minutes: there is no report, the new agent's ranking just climbs
+        to ``percentage`` 100. With ``wait`` > 0, poll the ranking for up to
+        ``wait`` seconds until the *new* agent (its ``agentId`` differs from
+        the one before the submit) has finished. **This replaces the user's
+        arena agent and changes their ranking.**
+        """
+        handle = await self._open_session(pretty_id, user_id)
+        before = await self.get_arena_ranking(handle, user_id)
+        payload = {"code": code, "programmingLanguageId": language}
+        submission_id = await self._call(
+            endpoints.TEST_SESSION_SUBMIT, [handle, payload, None]
+        )
+        ranking = await self.get_arena_ranking(handle, user_id)
+        deadline = asyncio.get_running_loop().time() + wait
+        while asyncio.get_running_loop().time() < deadline and not (
+            ranking.agentId != before.agentId
+            and ranking.percentage == 100
+            and not ranking.inProgress
+        ):
+            await asyncio.sleep(poll_interval)
+            ranking = await self.get_arena_ranking(handle, user_id)
+        return submission_id, ranking
 
     # -- puzzle topics (labels) --------------------------------------------
 
