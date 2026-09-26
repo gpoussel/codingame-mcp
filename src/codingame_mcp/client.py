@@ -526,20 +526,31 @@ class CodinGameClient:
         arena agent and changes their ranking.**
         """
         handle = await self._open_session(pretty_id, user_id)
-        before = await self.get_arena_ranking(handle, user_id)
+
+        async def ranking_or_empty() -> ArenaRanking:
+            # League-less (old BOT_PROGRAMMING) puzzles have no arena room:
+            # the ranking call fails with "internal error". The submission
+            # itself works, so a missing ranking must not block it.
+            try:
+                return await self.get_arena_ranking(handle, user_id)
+            except CodinGameError:
+                return ArenaRanking()
+
+        before = await ranking_or_empty()
         payload = {"code": code, "programmingLanguageId": language}
         submission_id = await self._call(
             endpoints.TEST_SESSION_SUBMIT, [handle, payload, None]
         )
-        ranking = await self.get_arena_ranking(handle, user_id)
+        ranking = await ranking_or_empty()
         deadline = asyncio.get_running_loop().time() + wait
         while asyncio.get_running_loop().time() < deadline and not (
-            ranking.agentId != before.agentId
+            ranking.agentId is not None
+            and ranking.agentId != before.agentId
             and ranking.percentage == 100
             and not ranking.inProgress
         ):
             await asyncio.sleep(poll_interval)
-            ranking = await self.get_arena_ranking(handle, user_id)
+            ranking = await ranking_or_empty()
         return submission_id, ranking
 
     # -- puzzle topics (labels) --------------------------------------------
