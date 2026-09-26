@@ -32,6 +32,9 @@ from .models import (
 )
 
 BASE_URL = "https://www.codingame.com"
+# A multi game is played server-side during the request: long games (100+
+# turns at up to ~100 ms per bot) take well over the default timeout.
+PLAY_TIMEOUT = 180.0
 API_URL = BASE_URL + "/services/"
 # Puzzle test-case I/O are served as plain-text blobs from the static CDN,
 # addressed by the binary ids embedded in the test session.
@@ -104,7 +107,12 @@ class CodinGameClient:
     # -- low level ---------------------------------------------------------
 
     async def request(
-        self, service: str, func: str, parameters: list | None = None
+        self,
+        service: str,
+        func: str,
+        parameters: list | None = None,
+        *,
+        timeout: float | None = None,
     ) -> Any:
         """POST a positional-argument array to a CodinGame service and return JSON.
 
@@ -112,7 +120,8 @@ class CodinGameClient:
             CodinGameError: on a non-2xx status or a CodinGame error envelope.
         """
         url = f"{service}/{func}"
-        response = await self._client.post(url, json=parameters or [])
+        extra = {"timeout": timeout} if timeout is not None else {}
+        response = await self._client.post(url, json=parameters or [], **extra)
         if response.status_code >= 400:
             payload: Any
             try:
@@ -129,8 +138,14 @@ class CodinGameClient:
             raise CodinGameError(service, func, data)
         return data
 
-    async def _call(self, endpoint: tuple[str, str], parameters: list | None = None) -> Any:
-        return await self.request(endpoint[0], endpoint[1], parameters)
+    async def _call(
+        self,
+        endpoint: tuple[str, str],
+        parameters: list | None = None,
+        *,
+        timeout: float | None = None,
+    ) -> Any:
+        return await self.request(endpoint[0], endpoint[1], parameters, timeout=timeout)
 
     # -- auth --------------------------------------------------------------
 
@@ -443,7 +458,9 @@ class CodinGameClient:
             "programmingLanguageId": language,
             "multi": {"agentsIds": agents_ids, "gameOptions": game_options},
         }
-        data = await self._call(endpoints.TEST_SESSION_PLAY, [handle, payload])
+        data = await self._call(
+            endpoints.TEST_SESSION_PLAY, [handle, payload], timeout=PLAY_TIMEOUT
+        )
         return GameResult.model_validate(data or {})
 
     async def get_arena_ranking(

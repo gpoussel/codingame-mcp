@@ -100,9 +100,11 @@ def _summarize_progress(data: dict[str, Any]) -> dict[str, Any]:
 
 # --- Multiplayer shaping ----------------------------------------------------
 
-# League names by distance from the top league. CodinGame only sends indexes
-# (divisionIndex out of divisionCount); the top is always Legend.
-_LEAGUE_NAMES_FROM_TOP = ("Legend", "Gold", "Silver", "Bronze", "Wood 1", "Wood 2", "Wood 3")
+# League names by distance from the top league, as the site names them.
+# CodinGame only sends indexes (divisionIndex out of divisionCount): the top is
+# always Legend, then Gold, Silver, Bronze, and as many Wood leagues as needed
+# (Wood 1 just below Bronze). So a 2-league game starts in Gold.
+_LEAGUE_NAMES_FROM_TOP = ("Legend", "Gold", "Silver", "Bronze")
 
 # Seat aliases accepted by the play tool, mapped to play's agentsIds.
 _SELF_AGENT = -1
@@ -173,6 +175,8 @@ def _league(league: dict[str, Any] | None) -> dict[str, Any] | None:
         from_top = count - 1 - index
         if 0 <= from_top < len(_LEAGUE_NAMES_FROM_TOP):
             name = _LEAGUE_NAMES_FROM_TOP[from_top]
+        elif from_top >= len(_LEAGUE_NAMES_FROM_TOP):
+            name = f"Wood {from_top - len(_LEAGUE_NAMES_FROM_TOP) + 1}"
     return {"name": name, "index": index, "count": count}
 
 

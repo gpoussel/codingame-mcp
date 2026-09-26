@@ -33,6 +33,10 @@ def test_league_is_named_from_the_top():
     assert _league({"divisionIndex": 4, "divisionCount": 5})["name"] == "Legend"
     assert _league({"divisionIndex": 2, "divisionCount": 5})["name"] == "Silver"
     assert _league({"divisionIndex": 0, "divisionCount": 7})["name"] == "Wood 3"
+    assert _league({"divisionIndex": 0, "divisionCount": 10})["name"] == "Wood 6"
+    # Few-league community games start high.
+    assert _league({"divisionIndex": 0, "divisionCount": 2})["name"] == "Gold"
+    assert _league({"divisionIndex": 0, "divisionCount": 1})["name"] == "Legend"
 
 
 def test_load_code_reads_file_and_infers_language(tmp_path):
