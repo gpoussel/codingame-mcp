@@ -77,8 +77,11 @@ async def test_arena_ranking_and_room_leaderboard(client):
         placement["divisionId"], placement["roomIndex"]
     )
     assert room.users, "expected a non-empty league room"
-    # The boss leads the list and is a playable agent.
-    assert any(u.arenaboss and u.agentId for u in room.users)
+    # Below the top league the boss leads the list and is a playable agent
+    # (the top league, Legend, has no boss).
+    league = session.arena["league"]
+    if league["divisionIndex"] < league["divisionCount"] - 1:
+        assert any(u.arenaboss and u.agentId for u in room.users)
 
 
 async def test_last_battles_and_replay(client):
@@ -96,7 +99,8 @@ async def test_last_battles_and_replay(client):
 async def test_arena_status_tool_shape(server_tools):
     status = await server_tools.get_arena_status(ARENA, neighbours=1)
     assert status["league"]["name"]
-    assert status["boss"]["agentId"]
+    if status["league"]["name"] != "Legend":
+        assert status["boss"]["agentId"]
     assert status["players"]["min"] >= 2
 
 
