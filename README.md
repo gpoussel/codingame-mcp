@@ -28,20 +28,27 @@ Read-only tools (always available):
 | `get_puzzle_leaderboard(pretty_id, language=None, limit=20, offset=0)` | A puzzle's leaderboard, optionally for one language: rank within the list, global rank, pseudo, language, score, `criteriaScore` (bytes on code golf) and submission date, plus the authenticated user's entry as `me`. CodinGame caps a leaderboard at 1000 entries (`capped`). |
 | `recommend_next_puzzles(pretty_id)` | The puzzles CodinGame suggests tackling next. |
 | `get_account_summary()` | Navbar counters: unseen notifications, lootable quests, new contributions/events. |
+| `get_arena_status(pretty_id, neighbours=5)` | Multiplayer: your league (Wood 3 … Legend), room rank, score, submission progress (`percentage`/`inProgress`), the league boss and the agents ranked around you (their `agentId`s are valid opponents). |
+| `get_arena_battles(pretty_id, limit=20)` | Multiplayer: your agent's last arena battles with opponents, your seat, outcome (win/loss/draw) and seed, plus the tally. |
+| `get_game_replay(game_id, seat=None, offset=0, limit=100, include_view=False)` | A game's turn-by-turn log (stdout, stderr, summary per frame), paged and optionally for one seat. |
 
 Write tools (exposed **only** when `CODINGAME_ENABLE_WRITES` is truthy — see
 [Enabling writes](#enabling-writes)):
 
 | Tool | Description |
 | --- | --- |
-| `run_puzzle_tests(pretty_id, language, code)` | Run a puzzle's visible test cases against your code. Does **not** affect your score. |
-| `submit_puzzle_solution(pretty_id, language, code)` | Submit for official grading. **Affects your score/ranking**; returns the per-validator result. |
+| `run_puzzle_tests(pretty_id, language, code \| code_file)` | Run a puzzle's visible test cases against your code. Does **not** affect your score. |
+| `submit_puzzle_solution(pretty_id, language, code \| code_file)` | Submit for official grading. **Affects your score/ranking**; returns the per-validator result. |
 | `claim_puzzle_labels(pretty_id)` | Claim a puzzle's labels (topics) onto your profile. **Changes your profile**; returns the labels claimed. |
+| `play_arena_games(pretty_id, language, code \| code_file, opponents=None, games=1, seed=None, rotate_seats=True, stderr_tail=0)` | Multiplayer: play IDE games against the boss (`"boss"`), yourself (`"self"`) or arena agents (`agentId`), rotating seats. Returns the win/loss/draw tally and per-game outcome, seed and events (timeouts, invalid moves). Does **not** affect your ranking. |
+| `submit_arena_bot(pretty_id, language, code \| code_file, wait_seconds=0)` | Multiplayer: submit to the arena. **Replaces your ranked agent**; returns its ranking (optionally after waiting for its ranking games). |
 
 > `handle` is the **public handle** (the long hex id in profile URLs), not the
 > display pseudo. `pretty_id` is the slug from a puzzle's training URL.
 > `language` is a `programmingLanguageId` (e.g. `Python3`, `TypeScript`, `Java`)
-> from `get_puzzle_tests`.
+> from `get_puzzle_tests`. Write tools take either `code` or `code_file`, an
+> absolute path to a local source file whose extension gives the language
+> when `language` is omitted.
 
 ## Setup
 

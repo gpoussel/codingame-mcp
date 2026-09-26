@@ -207,3 +207,93 @@ class PuzzleLeaderboard(CGModel):
     count: int | None = None
     filteredCount: int | None = None
     criteria: str | None = None
+
+
+class ArenaRanking(CGModel):
+    """An agent's standing in its arena room.
+
+    From ``Leaderboards/getUserArenaDivisionRoomRankingByTestSessionHandle``
+    (the user's own) or as a room leaderboard entry. After a submit,
+    ``percentage`` climbs to 100 while ``inProgress`` is true: that is the
+    arena's equivalent of a grading report. The boss's entry has no ``rank``
+    and carries ``arenaboss`` instead of ``codingamer``.
+    """
+
+    pseudo: str | None = None
+    rank: int | None = None
+    localRank: int | None = None
+    total: int | None = None
+    score: float | None = None
+    league: dict | None = None
+    agentId: int | None = None
+    percentage: int | None = None
+    inProgress: bool | None = None
+    eligibleForPromotion: bool | None = None
+    programmingLanguage: str | None = None
+    arenaboss: dict | None = None
+    codingamer: CodinGamer | None = None
+
+
+class ArenaRoomLeaderboard(CGModel):
+    """A league room's leaderboard, from ``getFilteredArenaDivisionRoomLeaderboard``.
+
+    ``users`` is capped at 1000 (boss first); ``codingamerUserRank`` is the
+    requesting user's own entry wherever it sits.
+    """
+
+    users: list[ArenaRanking] = []
+    count: int | None = None
+    codingamerUserRank: ArenaRanking | None = None
+
+
+class ArenaSession(CGModel):
+    """A multi puzzle's IDE state, from ``TestSession/startTestSession``.
+
+    ``arena`` holds the user's league (``arenaCodinGamer.divisionId`` /
+    ``roomIndex``, ``division.arenaboss``, ``league``, ``timeToPromotion``);
+    ``answer`` the current draft; ``question`` the league's statement, stub and
+    seat bounds (``nbPlayersMin``/``nbPlayersMax``).
+    """
+
+    handle: str
+    arena: dict | None = None
+    hasAgent: bool | None = None
+    answer: dict | None = None
+    question: dict = {}
+
+
+class GameFrame(CGModel):
+    """One frame of a game. ``agentId`` is the *seat index* (-1 on the init frame)."""
+
+    agentId: int | None = None
+    stdout: str | None = None
+    stderr: str | None = None
+    summary: str | None = None
+    gameInformation: str | None = None
+    view: str | None = None
+    keyframe: bool | None = None
+
+
+class GameResult(CGModel):
+    """A played game: ``TestSession/play`` on a multi puzzle, or a replay.
+
+    ``ranks``/``scores`` are per seat (rank 0 is the winner, equal ranks a
+    draw); ``refereeInput`` holds the seed (``seed=...``) that replays it.
+    ``agents`` is only present on replays.
+    """
+
+    gameId: int | None = None
+    refereeInput: str | None = None
+    scores: list[float] = []
+    ranks: list[int] = []
+    tooltips: list[str] = []
+    frames: list[GameFrame] = []
+    agents: list[dict] = []
+
+
+class ArenaBattle(CGModel):
+    """One of the user's last arena battles (no outcome: see the replay)."""
+
+    gameId: int | None = None
+    done: bool | None = None
+    players: list[dict] = []

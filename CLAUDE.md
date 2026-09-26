@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A read-only [MCP](https://modelcontextprotocol.io) server (MCPServer, mcp 2.x) exposing
+An [MCP](https://modelcontextprotocol.io) server (MCPServer, mcp 2.x) exposing
 [CodinGame](https://www.codingame.com) data. CodinGame has **no public API**:
 this server calls its undocumented internal JSON API and authenticates with a
 browser `rememberMe` cookie.
@@ -131,6 +131,25 @@ Adding any capability touches the same four files, in order:
   `markAsLearned [userId, puzzleId, topicId, true]` call each (it returns
   **204**, so `request()` returns `None` on empty bodies). `claim_puzzle_labels`
   flattens the tree (`unclaimed_leaf_topics`) and claims every unlearned leaf.
+- **Multiplayer (arena) puzzles have no test cases.** Their test session
+  (`startTestSession`) carries the league instead: `currentQuestion.arena`
+  (`arenaCodinGamer.divisionId`/`roomIndex`, `division.arenaboss`, `league`,
+  `timeToPromotion`) and the league's statement/stub with
+  `nbPlayersMin`/`nbPlayersMax`. `TestSession/play` then plays a *game*, and
+  only if the answer carries `multi: {agentsIds, gameOptions}` (else
+  `INVALID_MULTI_ANSWER`): `agentsIds` are the seats in order, `-1` the code
+  played, `-2` the boss/default AI, a positive id an arena agent;
+  `gameOptions` is the referee input (`seed=...`, from `refereeInput`) or
+  null. Frame `agentId` is the **seat index**; `ranks` are per seat (0 wins).
+  Arena submit is the plain `TestSession/submit`, but grading is no report:
+  poll `getUserArenaDivisionRoomRankingByTestSessionHandle` until the *new*
+  `agentId` reaches `percentage` 100. The room leaderboard needs the
+  **publicHandle** (not userId) to return `codingamerUserRank`, and is capped
+  at 1000 entries like puzzle leaderboards. Last battles carry no outcome:
+  `get_arena_battles` fetches each replay (`gameResult/findByGameId`) for its
+  `ranks`. The payloads were read from the IDE bundle
+  (`static.codingame.com/ide.*.js`, e.g. grep `agentsIds`), which is quicker
+  than capturing traffic.
 - **Discovery via the browser.** The write endpoints were reverse-engineered
   from the IDE's network traffic; `scripts/capture_codingame.py` logs
   `POST /services/...` calls. CodinGame's anti-debug (`debugger;` loops) freezes

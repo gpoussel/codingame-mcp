@@ -69,6 +69,33 @@ TEST_SESSION_SUBMIT = ("TestSession", "submit")  # 3 args: [handle, {code, progr
 # while grading is still running, then the full report (score, validators, ...).
 REPORT_BY_SUBMISSION = ("Report", "findReportBySubmission")  # 1 arg: [submissionId]
 
+# --- Multiplayer (bot programming arenas) --------------------------------
+# A multi puzzle's test session has no test cases: ``TestSession/play`` (above)
+# runs one *game* instead, when the answer carries a ``multi`` block:
+#   {code, programmingLanguageId,
+#    multi: {agentsIds: [...], gameOptions: "seed=..." | null}}
+# agentsIds lists the players in seat order: -1 is the code being played, -2
+# the league boss (or the default AI), a positive id a submitted arena agent.
+# Without the ``multi`` block, play fails with INVALID_MULTI_ANSWER. Arena
+# submission is the plain TEST_SESSION_SUBMIT; its grading is not a report but
+# the agent's ranking climbing to percentage 100 (ARENA_USER_RANKING).
+#
+# handle + userId -> the user's own ranking in their arena room: rank/total,
+# score, league, agentId, and the submission's progress (percentage,
+# inProgress). ~800 chars; what the IDE polls after a submit.
+ARENA_USER_RANKING = ("Leaderboards", "getUserArenaDivisionRoomRankingByTestSessionHandle")  # 2 args: [handle, userId]
+# {divisionId, roomIndex} + publicHandle + scope + filter -> one league room's
+# leaderboard. The boss comes first (no rank, carries ``arenaboss``); every
+# entry has an ``agentId`` that play accepts as an opponent. ~660k chars for
+# 1200 entries, capped at 1000.
+ARENA_ROOM_LEADERBOARD = ("Leaderboards", "getFilteredArenaDivisionRoomLeaderboard")  # 4 args: [{divisionId, roomIndex}, publicHandle, "global", filter]
+# handle -> the user's agent's last ~70 arena battles: players (agentId,
+# position, nickname) + gameId + done. No outcome: that needs the replay.
+ARENA_LAST_BATTLES = ("gamesPlayersRanking", "findLastBattlesByTestSessionHandle")  # 2 args: [handle, null]
+# gameId + userId -> a replay: frames (per-turn stdout/stderr/summary/view),
+# ranks and scores per seat, agents, refereeInput (the seed).
+GAME_RESULT_BY_ID = ("gameResult", "findByGameId")  # 2 args: [gameId, userId]
+
 # --- Puzzle topics (labels) -----------------------------------------------
 # userId + puzzleId -> the puzzle's topics/labels as a tree, each carrying the
 # user's "learned" (claimed) flag.
