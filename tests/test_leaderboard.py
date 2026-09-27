@@ -53,3 +53,19 @@ async def test_leaderboard_tool_ranks_within_filter(server_tools):
     ranks = [e["rank"] for e in entries]
     assert ranks == sorted(ranks)
     assert len(json.dumps(page)) < 10_000
+
+
+async def test_leaderboard_pseudo_filter(client):
+    """The pseudo filter finds a player by substring, whatever their rank."""
+    board = await client.get_puzzle_leaderboard(LEADERBOARD_ID)
+    pseudo = board.users[0].pseudo
+    found = await client.get_puzzle_leaderboard(LEADERBOARD_ID, pseudo=pseudo)
+    assert found.users
+    assert all(pseudo.lower() in (u.pseudo or "").lower() for u in found.users)
+
+
+async def test_leaderboard_rejects_two_filters(client):
+    import pytest
+
+    with pytest.raises(ValueError):
+        await client.get_puzzle_leaderboard(LEADERBOARD_ID, "C", pseudo="x")

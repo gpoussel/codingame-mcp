@@ -200,8 +200,33 @@ def _seed(result: GameResult) -> str | None:
     return (result.refereeInput or "").strip() or None
 
 
+def _placements(ranks: list[int], scores: list[float]) -> list[int]:
+    """Each seat's finishing place (0 = winner, ties share a place).
+
+    A game's ``ranks`` lists the seats in finishing order, without ties
+    (``[1, 3, 2, 0]``: seat 1 won, seat 0 came last); seats that follow each
+    other with equal scores share a place, as on the battle list (a drawn
+    tic-tac-toe game is ranks ``[0, 1]``, scores ``[4, 4]``). A ``ranks`` that
+    is not a permutation of the seats is taken as per-seat places already.
+    """
+    if sorted(ranks) != list(range(len(ranks))):
+        return list(ranks)
+    places = [0] * len(ranks)
+    for position, seat in enumerate(ranks):
+        previous = ranks[position - 1] if position else None
+        tied = (
+            previous is not None
+            and seat < len(scores)
+            and previous < len(scores)
+            and scores[seat] == scores[previous]
+        )
+        places[seat] = places[previous] if tied else position
+    return places
+
+
 def _outcome(ranks: list[int], seat: int) -> str | None:
-    """win/loss/draw for ``seat``: rank 0 wins, a shared best rank draws."""
+    """win/loss/draw for ``seat`` from per-seat places: 0 wins, a shared best
+    place draws. Pass a game's :func:`_placements`, not its raw ``ranks``."""
     if seat >= len(ranks):
         return None
     mine = ranks[seat]
@@ -258,8 +283,8 @@ def _game_summary(
         "seed": _seed(result),
         "seat": seat,
         "players": [names.get(i, f"seat {i}") for i in range(len(result.ranks))],
-        "outcome": _outcome(result.ranks, seat),
-        "ranks": result.ranks,
+        "outcome": _outcome(_placements(result.ranks, result.scores), seat),
+        "places": _placements(result.ranks, result.scores),
         "scores": result.scores,
         "turns": sum(1 for f in result.frames if f.agentId == seat),
         "events": _events(result, names),
@@ -279,6 +304,59 @@ def _tally(outcomes: list[str | None]) -> dict[str, Any]:
         "draws": draws,
         "winRate": round(wins / played, 3) if played else None,
     }
+
+
+def _battle_row(battle: Any, is_focus: Any, result: GameResult | None) -> dict[str, Any]:
+    """Shape one battle from the focus player's point of view.
+
+    The outcome comes from the players' ``position`` (their finishing place),
+    so it needs no replay; ``result``, when fetched, adds the focus seat and
+    the seed that replays the game.
+    """
+    players = battle.players
+    focus = next((i for i, p in enumerate(players) if is_focus(p)), None)
+    places = [p.get("position") for p in players]
+    row: dict[str, Any] = {
+        "gameId": battle.gameId,
+        "done": battle.done,
+        "outcome": (
+            _outcome(places, focus)
+            if battle.done and focus is not None and None not in places
+            else None
+        ),
+        "place": places[focus] if focus is not None else None,
+        "players": [
+            {
+                "pseudo": p.get("nickname"),
+                "agentId": p.get("playerAgentId"),
+                "place": p.get("position"),
+            }
+            for p in sorted(players, key=lambda p: p.get("position", 0))
+        ],
+    }
+    if result is not None:
+        agent_id = players[focus].get("playerAgentId") if focus is not None else None
+        row["seat"] = next(
+            (a.get("index") for a in result.agents if a.get("agentId") == agent_id), None
+        )
+        row["seed"] = _seed(result)
+    return row
+
+
+async def _battle_rows(
+    client: CodinGameClient, battles: list[Any], is_focus: Any, with_replays: bool
+) -> list[dict[str, Any]]:
+    """Shape battles, fetching their replays (5 at a time) when asked."""
+    semaphore = asyncio.Semaphore(5)
+
+    async def replay(battle: Any) -> GameResult | None:
+        if not with_replays or not battle.done or battle.gameId is None:
+            return None
+        async with semaphore:
+            return await client.get_game_result(battle.gameId)
+
+    results = await asyncio.gather(*(replay(b) for b in battles))
+    return [_battle_row(b, is_focus, r) for b, r in zip(battles, results)]
 
 
 async def get_client() -> CodinGameClient:
@@ -515,6 +593,10 @@ def _leaderboard_rows(entries: list[Any]) -> list[dict[str, Any]]:
                 "userId": entry.codingamer.userId if entry.codingamer else None,
             }
         )
+        if entry.agentId is not None:
+            # Multi puzzle: the agent to scout (get_player_battles) or play.
+            rows[-1]["league"] = (_league(entry.league) or {}).get("name")
+            rows[-1]["agentId"] = entry.agentId
     return rows
 
 
@@ -522,25 +604,36 @@ def _leaderboard_rows(entries: list[Any]) -> list[dict[str, Any]]:
 async def get_puzzle_leaderboard(
     pretty_id: str,
     language: str | None = None,
+    pseudo: str | None = None,
+    league: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> dict[str, Any]:
-    """Get a puzzle's leaderboard, optionally for one language, with dates.
+    """Get a puzzle's leaderboard (incl. multiplayer arenas), with dates.
 
     Each entry is one user's best in one language: its rank within this list
-    (ties share a rank), the global rank, pseudo, language, validator score (%),
-    criteriaScore (the optimization criterion -- bytes on code-golf puzzles) and
-    submittedAt (UTC). The authenticated user's own entry is returned as "me"
+    (ties share a rank), the global rank, pseudo, language, score (validator
+    % on puzzles, the arena score on multis), criteriaScore (the optimization
+    criterion -- bytes on code-golf puzzles) and submittedAt (UTC). On a
+    multiplayer puzzle the board spans every league (best first) and each
+    entry also has its league and agentId: pass the agentId (or pseudo) to
+    get_player_battles to study that player's games, or to play_arena_games
+    as an opponent. The authenticated user's own entry is returned as "me"
     when it is on the board, wherever it sits relative to the page.
 
     CodinGame caps a leaderboard at 1000 entries: "capped" is true when the
     list is truncated (then ranks past the cap and "me" may be missing).
-    Filtering by language usually keeps the list under the cap.
+    Filtering keeps the list under the cap; CodinGame filters on one column
+    at a time, so pass at most one of language, pseudo and league.
 
     Args:
         pretty_id: The puzzle's pretty id (the slug in its training URL).
         language: A programmingLanguageId (e.g. ``TypeScript``) to restrict the
             leaderboard to; all languages when omitted.
+        pseudo: Keep the players whose pseudo contains this text (any rank,
+            even past the 1000-entry cap).
+        league: Multi puzzles: keep one league ("Legend", "Gold", "Silver",
+            "Bronze", "Wood 1", ...).
         limit: Max entries on this page (0 to _MAX_LIMIT; 0 returns counts and
             "me" only).
         offset: Entries to skip, for paging.
@@ -553,7 +646,9 @@ async def get_puzzle_leaderboard(
     client = await get_client()
     puzzle = await client.get_puzzle(pretty_id)
     leaderboard_id = puzzle.puzzleLeaderboardId or pretty_id
-    board = await client.get_puzzle_leaderboard(leaderboard_id, language)
+    board = await client.get_puzzle_leaderboard(
+        leaderboard_id, language, pseudo=pseudo, league=league
+    )
     rows = _leaderboard_rows(board.users)
     user_id = await client.get_user_id()
     me = next((row for row in rows if row["userId"] == user_id), None)
@@ -562,9 +657,17 @@ async def get_puzzle_leaderboard(
         "puzzle": pretty_id,
         "leaderboardId": leaderboard_id,
         "criteria": board.criteria,
-        "language": language,
+        "filter": {"language": language, "pseudo": pseudo, "league": league},
         "total": total,
         "capped": len(rows) < total,
+        # Multi puzzles: agents per league, best league first.
+        "leagues": {
+            (_league(info) or {}).get("name") or index: info.get("divisionAgentsCount")
+            for index, info in sorted(
+                (board.leagues or {}).items(), key=lambda item: -int(item[0])
+            )
+        }
+        or None,
         "me": me,
         "offset": offset,
         "limit": limit,
@@ -646,17 +749,23 @@ async def get_arena_status(pretty_id: str, neighbours: int = 5) -> dict[str, Any
 
 
 @mcp.tool()
-async def get_arena_battles(pretty_id: str, limit: int = 20) -> dict[str, Any]:
+async def get_arena_battles(
+    pretty_id: str, limit: int = 20, include_seeds: bool = True
+) -> dict[str, Any]:
     """Get your arena agent's last battles with their outcome.
 
-    Each battle lists the players (pseudo, agentId), your seat and your
-    outcome (win/loss/draw, from the replay). Pass a battle's gameId to
+    Each battle lists the players (pseudo, agentId, finishing place, best
+    first), your place and outcome (win/loss/draw), and -- with
+    include_seeds -- your seat and the seed. Pass a battle's gameId to
     get_game_replay to see what happened, or its seed to play_arena_games to
-    replay it against a new version of your code.
+    replay it against a new version of your code. To study someone else's
+    games, use get_player_battles.
 
     Args:
         pretty_id: The multi puzzle's pretty id.
         limit: How many of the most recent battles to return (1 to 70).
+        include_seeds: Fetch each battle's replay for your seat and the seed
+            (slower: one replay per battle).
     """
     if limit < 1 or limit > 70:
         raise ValueError(f"limit must be between 1 and 70, got {limit}")
@@ -664,65 +773,168 @@ async def get_arena_battles(pretty_id: str, limit: int = 20) -> dict[str, Any]:
     user_id = await client.get_user_id()
     handle = (await client.get_arena_session(pretty_id)).handle
     battles = (await client.get_last_battles(handle))[:limit]
-
-    semaphore = asyncio.Semaphore(5)
-
-    async def replay(game_id: int | None) -> GameResult | None:
-        if game_id is None:
-            return None
-        async with semaphore:
-            return await client.get_game_result(game_id)
-
-    results = await asyncio.gather(
-        *(replay(b.gameId if b.done else None) for b in battles)
+    rows = await _battle_rows(
+        client, battles, lambda p: p.get("userId") == user_id, include_seeds
     )
-    rows = []
-    for battle, result in zip(battles, results):
-        players = sorted(battle.players, key=lambda p: p.get("position", 0))
-        seat = next(
-            (p.get("position") for p in players if p.get("userId") == user_id), None
-        )
-        rows.append(
-            {
-                "gameId": battle.gameId,
-                "done": battle.done,
-                "seat": seat,
-                "players": [
-                    {"pseudo": p.get("nickname"), "agentId": p.get("playerAgentId")}
-                    for p in players
-                ],
-                "outcome": _outcome(result.ranks, seat) if result and seat is not None else None,
-                "seed": _seed(result) if result else None,
-            }
-        )
     return {**_tally([r["outcome"] for r in rows]), "battles": rows}
+
+
+async def _find_player(
+    client: CodinGameClient, pretty_id: str, pseudo: str
+) -> dict[str, Any]:
+    """Find a player's leaderboard entry on a multi puzzle by pseudo.
+
+    The leaderboard's pseudo filter matches substrings: an exact
+    (case-insensitive) match wins, else the match must be unique.
+    """
+    puzzle = await client.get_puzzle(pretty_id)
+    board = await client.get_puzzle_leaderboard(
+        puzzle.puzzleLeaderboardId or pretty_id, pseudo=pseudo
+    )
+    rows = [r for r in _leaderboard_rows(board.users) if r.get("agentId") is not None]
+    exact = [r for r in rows if (r["pseudo"] or "").lower() == pseudo.lower()]
+    matches = exact or rows
+    if not matches:
+        raise ValueError(f"no player matching {pseudo!r} on {pretty_id}'s leaderboard")
+    if len(matches) > 1:
+        names = ", ".join(r["pseudo"] or "?" for r in matches[:10])
+        raise ValueError(f"{pseudo!r} matches several players ({names}): be more precise")
+    row = matches[0]
+    row["rank"] = row.pop("globalRank")
+    return row
+
+
+@mcp.tool()
+async def get_player_battles(
+    pretty_id: str,
+    pseudo: str | None = None,
+    agent_id: int | None = None,
+    opponent: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+    include_seeds: bool = False,
+) -> dict[str, Any]:
+    """Get any player's last arena battles -- e.g. a top player's, to study.
+
+    Identify the player by pseudo (looked up on the puzzle's leaderboard, any
+    rank) or by agentId (from get_puzzle_leaderboard / get_arena_status).
+    CodinGame keeps an agent's last ~240 battles, most recent first. Each
+    battle lists its players (pseudo, agentId, finishing place, best first)
+    and the player's place and outcome, with the win/loss/draw tally over the
+    returned battles. Then use get_game_replay(gameId, player=<pseudo>) to
+    read their moves turn by turn, or download_game_replays to save full
+    replays to disk for offline analysis.
+
+    Args:
+        pretty_id: The multi puzzle's pretty id (e.g. ``mad-pod-racing``).
+        pseudo: The player's pseudo (exact match preferred, case-insensitive).
+        agent_id: The player's arena agentId, instead of pseudo.
+        opponent: Keep only the battles against a player whose pseudo contains
+            this text (case-insensitive).
+        limit: Max battles returned (1 to 100).
+        offset: Battles to skip (after the opponent filter), for paging.
+        include_seeds: Fetch each returned battle's replay for the player's
+            seat and the seed, to replay it with play_arena_games (slower).
+    """
+    if (pseudo is None) == (agent_id is None):
+        raise ValueError("pass exactly one of pseudo or agent_id")
+    if limit < 1 or limit > 100:
+        raise ValueError(f"limit must be between 1 and 100, got {limit}")
+    if offset < 0:
+        raise ValueError(f"offset must be >= 0, got {offset}")
+    client = await get_client()
+    player = await _find_player(client, pretty_id, pseudo) if pseudo else None
+    agent = player["agentId"] if player else agent_id
+    battles = await client.get_agent_battles(agent)
+    if opponent:
+        needle = opponent.lower()
+        battles = [
+            b
+            for b in battles
+            if any(
+                needle in (p.get("nickname") or "").lower()
+                and p.get("playerAgentId") != agent
+                for p in b.players
+            )
+        ]
+    page = battles[offset : offset + limit]
+    rows = await _battle_rows(
+        client, page, lambda p: p.get("playerAgentId") == agent, include_seeds
+    )
+    if player is None:
+        # Name the player from the battles themselves.
+        nickname = next(
+            (
+                p.get("nickname")
+                for b in battles
+                for p in b.players
+                if p.get("playerAgentId") == agent
+            ),
+            None,
+        )
+        player = {"pseudo": nickname, "agentId": agent}
+    return {
+        "player": player,
+        "total": len(battles),
+        "offset": offset,
+        **_tally([r["outcome"] for r in rows]),
+        "battles": rows,
+    }
+
+
+def _agent_names(result: GameResult) -> dict[int, str]:
+    """Seat -> pseudo (or the boss's nickname) of a replay's agents."""
+    return {
+        a.get("index"): (a.get("codingamer") or {}).get("pseudo")
+        or (a.get("arenaboss") or {}).get("nickname")
+        for a in result.agents
+    }
 
 
 @mcp.tool()
 async def get_game_replay(
     game_id: int,
     seat: int | None = None,
+    player: str | None = None,
     offset: int = 0,
     limit: int = 100,
     include_view: bool = False,
 ) -> dict[str, Any]:
     """Get a game's turn-by-turn log: each seat's output, stderr and summary.
 
-    Works for arena battles and for games played with play_arena_games. Only
-    your own seat's stderr is visible on arena battles. Frame 0 is the
-    initialisation; each later frame belongs to the seat in ``seat``.
+    Works on any game: your arena battles, games played with
+    play_arena_games, and other players' battles (get_player_battles) --
+    every seat's stdout (its actions) is visible, but only your own stderr.
+    Frame 0 is the initialisation; each later frame belongs to the seat in
+    ``seat``. ``agents`` gives each seat's pseudo, agentId and finishing
+    place (0 = winner).
 
     Args:
-        game_id: The game id (from get_arena_battles or play_arena_games).
+        game_id: The game id (from get_arena_battles, get_player_battles or
+            play_arena_games).
         seat: Keep only this seat's frames (0-based); all seats when omitted.
+        player: Keep only this player's frames, by pseudo (instead of seat).
         offset: Frames to skip (after the seat filter), for paging.
         limit: Max frames returned (1 to 400).
-        include_view: Include each frame's viewer data (large, rarely useful).
+        include_view: Include each frame's viewer data -- the game state the
+            viewer draws (positions, ...); large, but the only per-turn state.
     """
     if limit < 1 or limit > _MAX_FRAMES:
         raise ValueError(f"limit must be between 1 and {_MAX_FRAMES}, got {limit}")
+    if seat is not None and player is not None:
+        raise ValueError("pass at most one of seat or player")
     client = await get_client()
     result = await client.get_game_result(game_id)
+    names = _agent_names(result)
+    if player is not None:
+        seat = next(
+            (i for i, n in names.items() if (n or "").lower() == player.lower()), None
+        )
+        if seat is None:
+            raise ValueError(
+                f"{player!r} is not in game {game_id} (players: "
+                f"{', '.join(n or '?' for n in names.values())})"
+            )
     frames = [
         {"frame": index, **f.model_dump(exclude_none=True)}
         for index, f in enumerate(result.frames)
@@ -735,24 +947,83 @@ async def get_game_replay(
             frame.pop("view", None)
         for key in [k for k, v in frame.items() if v == ""]:
             del frame[key]
-    names = {
-        a.get("index"): (a.get("codingamer") or {}).get("pseudo")
-        or (a.get("arenaboss") or {}).get("nickname")
-        for a in result.agents
-    }
+    places = _placements(result.ranks, result.scores)
     return {
         "gameId": result.gameId,
         "seed": _seed(result),
         "agents": [
-            {"seat": a.get("index"), "pseudo": names.get(a.get("index")), "agentId": a.get("agentId")}
+            {
+                "seat": a.get("index"),
+                "pseudo": names.get(a.get("index")),
+                "agentId": a.get("agentId"),
+                "place": places[a["index"]]
+                if isinstance(a.get("index"), int) and a["index"] < len(places)
+                else None,
+                "score": result.scores[a["index"]]
+                if isinstance(a.get("index"), int) and a["index"] < len(result.scores)
+                else None,
+            }
             for a in result.agents
         ],
-        "ranks": result.ranks,
-        "scores": result.scores,
         "events": _events(result, {k: v for k, v in names.items() if v}),
         "totalFrames": len(frames),
         "offset": offset,
         "frames": frames[offset : offset + limit],
+    }
+
+
+@mcp.tool()
+async def download_game_replays(game_ids: list[int], directory: str) -> dict[str, Any]:
+    """Save full game replays as JSON files, for offline analysis.
+
+    Writes ``<directory>/<gameId>.json`` per game: the raw replay with every
+    frame (stdout, stderr, summary, view -- the per-turn game state), the
+    agents (``index`` is the seat), scores and ``refereeInput`` (the seed).
+    Note ``ranks`` there lists the *seats in finishing order*, not each
+    seat's rank. A replay is ~100-300k chars, too big to read whole in a tool
+    call: parse the files with a script instead. Games already saved are
+    skipped. Get gameIds from get_player_battles or get_arena_battles.
+
+    Args:
+        game_ids: The games to save (1 to 100).
+        directory: Absolute path of the directory to write to (created if
+            missing).
+    """
+    if not 1 <= len(game_ids) <= 100:
+        raise ValueError(f"pass 1 to 100 game ids, got {len(game_ids)}")
+    target = Path(directory).expanduser()
+    if not target.is_absolute():
+        raise ValueError(f"directory must be an absolute path, got {directory!r}")
+    target.mkdir(parents=True, exist_ok=True)
+    client = await get_client()
+    semaphore = asyncio.Semaphore(5)
+
+    async def save(game_id: int) -> dict[str, Any]:
+        path = target / f"{game_id}.json"
+        if path.exists():
+            return {"gameId": game_id, "path": str(path), "skipped": True}
+        try:
+            async with semaphore:
+                result = await client.get_game_result(game_id)
+        except Exception as error:  # keep the other downloads going
+            return {"gameId": game_id, "error": str(error)}
+        path.write_text(json.dumps(result.model_dump(mode="json")), encoding="utf-8")
+        names = _agent_names(result)
+        return {
+            "gameId": game_id,
+            "path": str(path),
+            "players": [names.get(i) for i in range(len(result.scores))],
+            "frames": len(result.frames),
+            "bytes": path.stat().st_size,
+        }
+
+    files = await asyncio.gather(*(save(g) for g in dict.fromkeys(game_ids)))
+    return {
+        "directory": str(target),
+        "saved": sum(1 for f in files if "bytes" in f),
+        "skipped": sum(1 for f in files if f.get("skipped")),
+        "failed": sum(1 for f in files if "error" in f),
+        "files": files,
     }
 
 

@@ -194,19 +194,27 @@ class LeaderboardEntry(CGModel):
     programmingLanguage: str | None = None
     creationTime: int | None = None
     codingamer: CodinGamer | None = None
+    # Multi puzzles only: the ranked agent (valid for play and battle lookups)
+    # and its league ({divisionIndex, divisionCount, ...}).
+    agentId: int | None = None
+    league: dict | None = None
 
 
 class PuzzleLeaderboard(CGModel):
     """A puzzle leaderboard, from ``Leaderboards/getFilteredPuzzleLeaderboard``.
 
     ``users`` is capped at 1000 entries; ``count`` is the whole leaderboard and
-    ``filteredCount`` the number of entries matching the filter.
+    ``filteredCount`` the number of entries matching the filter. On a multi
+    puzzle the entries span every league, best league first.
     """
 
     users: list[LeaderboardEntry] = []
     count: int | None = None
     filteredCount: int | None = None
     criteria: str | None = None
+    # Multi puzzles only: divisionIndex (as a string) -> league, with its
+    # divisionAgentsCount.
+    leagues: dict[str, dict] | None = None
 
 
 class ArenaRanking(CGModel):
@@ -277,9 +285,10 @@ class GameFrame(CGModel):
 class GameResult(CGModel):
     """A played game: ``TestSession/play`` on a multi puzzle, or a replay.
 
-    ``ranks``/``scores`` are per seat (rank 0 is the winner, equal ranks a
-    draw); ``refereeInput`` holds the seed (``seed=...``) that replays it.
-    ``agents`` is only present on replays.
+    ``scores`` are per seat, but ``ranks`` lists the *seats in finishing
+    order* (``[1, 0]``: seat 1 won), with no ties -- equal scores mark a shared
+    place. ``refereeInput`` holds the seed (``seed=...``) that replays it.
+    ``agents`` (``index`` = seat) is only present on replays.
     """
 
     gameId: int | None = None
@@ -292,7 +301,12 @@ class GameResult(CGModel):
 
 
 class ArenaBattle(CGModel):
-    """One of the user's last arena battles (no outcome: see the replay)."""
+    """One of an agent's last arena battles.
+
+    Each player carries ``playerAgentId``, ``userId``, ``nickname`` and
+    ``position``: its finishing place (0 = winner, ties share it), *not* its
+    seat. The seat, seed and turns are in the replay.
+    """
 
     gameId: int | None = None
     done: bool | None = None

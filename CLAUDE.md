@@ -140,16 +140,30 @@ Adding any capability touches the same four files, in order:
   `INVALID_MULTI_ANSWER`): `agentsIds` are the seats in order, `-1` the code
   played, `-2` the boss/default AI, a positive id an arena agent;
   `gameOptions` is the referee input (`seed=...`, from `refereeInput`) or
-  null. Frame `agentId` is the **seat index**; `ranks` are per seat (0 wins).
+  null. Frame `agentId` is the **seat index**; `ranks` are the seats in finishing order (see below).
   Arena submit is the plain `TestSession/submit`, but grading is no report:
   poll `getUserArenaDivisionRoomRankingByTestSessionHandle` until the *new*
   `agentId` reaches `percentage` 100. The room leaderboard needs the
   **publicHandle** (not userId) to return `codingamerUserRank`, and is capped
-  at 1000 entries like puzzle leaderboards. Last battles carry no outcome:
-  `get_arena_battles` fetches each replay (`gameResult/findByGameId`) for its
-  `ranks`. The payloads were read from the IDE bundle
+  at 1000 entries like puzzle leaderboards. Last battles carry each player's
+  finishing `position` (see below); the replay (`gameResult/findByGameId`) is
+  only needed for the seat and the seed. The payloads were read from the IDE bundle
   (`static.codingame.com/ide.*.js`, e.g. grep `agentsIds`), which is quicker
   than capturing traffic.
+- **Scouting other players.** A multi puzzle's `getFilteredPuzzleLeaderboard`
+  spans every league and each entry carries `agentId` + `league` (plus a
+  `leagues` count map). Its filter takes one column at a time: `LANGUAGE`,
+  `KEYWORD` (pseudo substring, any rank, past the 1000 cap) or `LEAGUE` (the
+  lowercase name: `gold`, `wood 1`). `findLastBattlesByAgentId [agentId,
+  null]` then gives *any* agent's last ~240 battles, and `findByGameId`
+  replays anyone's game (all stdout, only your own stderr).
+- **Battle `position` is the finishing place, replay `ranks` is not per
+  seat.** On a battle, `position` is the player's place (0 = winner, a draw
+  is 0/0) -- not its seat; the seat is the replay's `agents[].index`. A
+  replay's `ranks` lists the *seats in finishing order* (`[1, 3, 2, 0]`: seat
+  1 won) with no ties; equal `scores` mark a shared place. `_placements`
+  converts it to per-seat places; `_outcome` takes places, never raw `ranks`.
+  (Verified on 2-player Mad Pod/Tic-Tac-Toe and 4-player Tron/Kutulu.)
 - **Discovery via the browser.** The write endpoints were reverse-engineered
   from the IDE's network traffic; `scripts/capture_codingame.py` logs
   `POST /services/...` calls. CodinGame's anti-debug (`debugger;` loops) freezes

@@ -7,9 +7,18 @@ unchanged; it is skipped when the user has no draft for the puzzle.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
-from codingame_mcp.server import _league, _load_code, _outcome
+from codingame_mcp.models import ArenaBattle
+from codingame_mcp.server import (
+    _battle_row,
+    _league,
+    _load_code,
+    _outcome,
+    _placements,
+)
 
 # A two-player multi puzzle with a fast referee.
 ARENA = "tic-tac-toe"
@@ -27,6 +36,39 @@ def test_outcome_two_players():
 def test_outcome_shared_first_place_is_a_draw():
     assert _outcome([0, 0, 2], 1) == "draw"
     assert _outcome([0, 0, 2], 2) == "loss"
+
+
+def test_placements_read_ranks_as_seats_in_finishing_order():
+    # Seat 1 won, seat 3 second, seat 2 third, seat 0 last (a Tron game).
+    assert _placements([1, 3, 2, 0], [70, 100, 80, 90]) == [3, 0, 2, 1]
+    # A drawn 2-player game still lists both seats: equal scores tie them.
+    assert _placements([0, 1], [4, 4]) == [0, 0]
+    # Ties further down (Code of Kutulu): seats 1 and 2 share third place.
+    assert _placements([0, 3, 1, 2], [222, 169, 169, 202]) == [0, 2, 2, 1]
+    # Not a permutation: already per-seat places.
+    assert _placements([0, 0], [1, 1]) == [0, 0]
+
+
+def test_outcome_from_placements():
+    assert _outcome(_placements([1, 0], [1, 2]), 1) == "win"
+    assert _outcome(_placements([0, 1], [4, 4]), 1) == "draw"
+
+
+def test_battle_row_uses_position_as_the_finishing_place():
+    battle = ArenaBattle.model_validate(
+        {
+            "gameId": 1,
+            "done": True,
+            "players": [
+                {"playerAgentId": 10, "nickname": "a", "position": 1},
+                {"playerAgentId": 20, "nickname": "b", "position": 0},
+            ],
+        }
+    )
+    row = _battle_row(battle, lambda p: p["playerAgentId"] == 10, None)
+    assert row["outcome"] == "loss" and row["place"] == 1
+    assert [p["pseudo"] for p in row["players"]] == ["b", "a"]
+    assert "seat" not in row
 
 
 def test_league_is_named_from_the_top():
@@ -119,3 +161,60 @@ async def test_play_game_returns_ranks(client):
     assert len(result.ranks) == low
     assert result.refereeInput and result.refereeInput.startswith("seed=")
     assert any(f.agentId == 0 for f in result.frames)
+
+
+# -- scouting other players ------------------------------------------------
+
+
+async def test_arena_leaderboard_carries_agents_and_leagues(client):
+    puzzle = await client.get_puzzle(ARENA)
+    board = await client.get_puzzle_leaderboard(puzzle.puzzleLeaderboardId or ARENA)
+    assert board.users and board.leagues
+    top = board.users[0]
+    assert top.agentId and top.league and "divisionIndex" in top.league
+    assert all("divisionAgentsCount" in league for league in board.leagues.values())
+
+
+async def test_agent_battles_and_their_replay(client):
+    puzzle = await client.get_puzzle(ARENA)
+    board = await client.get_puzzle_leaderboard(puzzle.puzzleLeaderboardId or ARENA)
+    agent = board.users[0].agentId
+    battles = await client.get_agent_battles(agent)
+    done = [b for b in battles if b.done]
+    assert done, "expected finished battles for the top agent"
+    players = done[0].players
+    assert any(p["playerAgentId"] == agent for p in players)
+    assert all(isinstance(p.get("position"), int) and p.get("nickname") for p in players)
+    replay = await client.get_game_result(done[0].gameId)
+    # Seats come from the replay's agents; ranks lists every seat once.
+    assert {a["agentId"] for a in replay.agents} == {p["playerAgentId"] for p in players}
+    assert sorted(replay.ranks) == list(range(len(players)))
+    assert len(replay.scores) == len(players)
+
+
+async def test_player_battles_tool_shape(server_tools):
+    top = (await server_tools.get_puzzle_leaderboard(ARENA, limit=1))["entries"][0]
+    page = await server_tools.get_player_battles(ARENA, pseudo=top["pseudo"], limit=3)
+    assert page["player"]["agentId"] == top["agentId"]
+    assert page["total"] and len(page["battles"]) <= 3
+    battle = page["battles"][0]
+    assert battle["outcome"] in ("win", "loss", "draw")
+    replay = await server_tools.get_game_replay(
+        battle["gameId"], player=top["pseudo"], limit=5
+    )
+    me = next(a for a in replay["agents"] if a["pseudo"] == top["pseudo"])
+    assert me["place"] == battle["place"]
+    assert all(f["seat"] == me["seat"] for f in replay["frames"])
+
+
+async def test_download_game_replays(server_tools, tmp_path):
+    top = (await server_tools.get_puzzle_leaderboard(ARENA, limit=1))["entries"][0]
+    battles = await server_tools.get_player_battles(ARENA, agent_id=top["agentId"], limit=2)
+    ids = [b["gameId"] for b in battles["battles"]]
+    saved = await server_tools.download_game_replays(ids, str(tmp_path))
+    assert saved["saved"] == len(ids)
+    for file in saved["files"]:
+        data = json.loads(open(file["path"]).read())
+        assert data["frames"] and data["agents"] and data["refereeInput"]
+    again = await server_tools.download_game_replays(ids, str(tmp_path))
+    assert again["skipped"] == len(ids)

@@ -44,10 +44,13 @@ PUZZLE_GENERATE_SESSION = ("Puzzle", "generateSessionFromPuzzlePrettyId")  # 3 a
 
 # --- Leaderboards ---------------------------------------------------------
 # leaderboardId + userId + scope + filter -> a puzzle's leaderboard (one entry
-# per user and language). The leaderboard id is the puzzle's
+# per user and language; on a multi puzzle, one per agent across every league,
+# carrying agentId and league). The leaderboard id is the puzzle's
 # ``puzzleLeaderboardId`` (often the prettyId, but not always: "thor-codesize"
 # for "power-of-thor"). Public: works without the cookie, userId may be null.
-# The filter is {"active": bool, "column": "LANGUAGE"|..., "filter": value};
+# The filter is {"active": bool, "column": ..., "filter": value}, one column at
+# a time: "LANGUAGE" (a programmingLanguageId), "KEYWORD" (a pseudo substring)
+# or, on a multi puzzle, "LEAGUE" (the lowercase name: "gold", "wood 1");
 # the response is capped at 1000 entries (``filteredCount`` gives the real size).
 PUZZLE_LEADERBOARD = ("Leaderboards", "getFilteredPuzzleLeaderboard")  # 4 args: [leaderboardId, userId, "global", filter]
 
@@ -89,11 +92,19 @@ ARENA_USER_RANKING = ("Leaderboards", "getUserArenaDivisionRoomRankingByTestSess
 # entry has an ``agentId`` that play accepts as an opponent. ~660k chars for
 # 1200 entries, capped at 1000.
 ARENA_ROOM_LEADERBOARD = ("Leaderboards", "getFilteredArenaDivisionRoomLeaderboard")  # 4 args: [{divisionId, roomIndex}, publicHandle, "global", filter]
-# handle -> the user's agent's last ~70 arena battles: players (agentId,
-# position, nickname) + gameId + done. No outcome: that needs the replay.
+# handle -> the user's agent's last arena battles: gameId, done, and players
+# (playerAgentId, userId, nickname, position). ``position`` is the player's
+# *finishing place* (0 = winner, ties share it: a draw is 0/0), not its seat
+# -- the seat is the replay's ``agents[].index``.
 ARENA_LAST_BATTLES = ("gamesPlayersRanking", "findLastBattlesByTestSessionHandle")  # 2 args: [handle, null]
+# agentId -> the same, for *any* arena agent (e.g. a top player's, from the
+# puzzle leaderboard): ~240 battles for a Legend agent. Public.
+ARENA_LAST_BATTLES_BY_AGENT = ("gamesPlayersRanking", "findLastBattlesByAgentId")  # 2 args: [agentId, null]
 # gameId + userId -> a replay: frames (per-turn stdout/stderr/summary/view),
-# ranks and scores per seat, agents, refereeInput (the seed).
+# agents (index = seat), refereeInput (the seed). Works on anyone's game; only
+# the user's own stderr is visible. ``scores`` are per seat but ``ranks`` is
+# the *seats in finishing order* ([1, 3, 2, 0]: seat 1 won), with no ties:
+# equal scores are what mark a shared place. ~200k chars for 500 frames.
 GAME_RESULT_BY_ID = ("gameResult", "findByGameId")  # 2 args: [gameId, userId]
 
 # --- Puzzle topics (labels) -----------------------------------------------
