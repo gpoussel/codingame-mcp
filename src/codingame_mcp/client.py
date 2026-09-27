@@ -246,16 +246,36 @@ class CodinGameClient:
         return [PuzzleProgress.model_validate(item) for item in (data or [])]
 
     async def get_puzzle_leaderboard(
-        self, leaderboard_id: str, language: str | None = None
+        self,
+        leaderboard_id: str,
+        language: str | None = None,
+        *,
+        pseudo: str | None = None,
+        league: str | None = None,
     ) -> PuzzleLeaderboard:
-        """Fetch a puzzle leaderboard, optionally filtered to one language.
+        """Fetch a puzzle leaderboard, optionally filtered.
 
         ``leaderboard_id`` is the puzzle's ``puzzleLeaderboardId`` (see
         :meth:`get_puzzle`). The endpoint is public and capped at 1000 entries.
+        CodinGame filters on one column at a time, so at most one of
+        ``language`` (a programmingLanguageId), ``pseudo`` (matched as a
+        substring) and ``league`` (multi puzzles: "legend", "gold", "wood 1",
+        ...) may be given.
         """
+        filters = [
+            (column, value)
+            for column, value in (
+                ("LANGUAGE", language),
+                ("KEYWORD", pseudo),
+                ("LEAGUE", league.lower() if league else None),
+            )
+            if value
+        ]
+        if len(filters) > 1:
+            raise ValueError("filter on at most one of language, pseudo and league")
         leaderboard_filter = (
-            {"active": True, "column": "LANGUAGE", "filter": language}
-            if language
+            {"active": True, "column": filters[0][0], "filter": filters[0][1]}
+            if filters
             else {"active": False, "column": "", "filter": ""}
         )
         data = await self._call(
@@ -491,6 +511,11 @@ class CodinGameClient:
     async def get_last_battles(self, handle: str) -> list[ArenaBattle]:
         """The user's agent's last arena battles, most recent first."""
         data = await self._call(endpoints.ARENA_LAST_BATTLES, [handle, None])
+        return [ArenaBattle.model_validate(b) for b in (data or [])]
+
+    async def get_agent_battles(self, agent_id: int) -> list[ArenaBattle]:
+        """Any arena agent's last battles, most recent first (public)."""
+        data = await self._call(endpoints.ARENA_LAST_BATTLES_BY_AGENT, [agent_id, None])
         return [ArenaBattle.model_validate(b) for b in (data or [])]
 
     async def get_game_result(
